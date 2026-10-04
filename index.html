@@ -47,7 +47,7 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 
 <section><h2>Ввід: чат WhatsApp</h2>
 <input type="file" id="file" accept=".txt">
-<button id="pick" type="button" style="margin-top:8px">Відібрати з чату за фільтром</button></section>
+<button id="pick" type="button" style="margin-top:8px">Завантажити з чату</button></section>
 
 <section><h2>Фільтр</h2>
 <div class="grid">
@@ -56,11 +56,11 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 <div><label for="to">Час до</label><input type="time" id="to"></div>
 <div class="wide"><label for="targets">Цілі (через кому, «б/н» — без номера)</label><input type="text" id="targets" inputmode="text" placeholder="8106, 9841, б/н"></div>
 </div>
-<label class="chk"><input type="checkbox" id="apply">Застосувати фільтр до звіту та .docx</label>
-<label class="chk" style="margin-top:4px;color:var(--mut)">«Від» більше за «до» (22:00–02:00) — доба переходить через північ.</label></section>
+<label class="chk" style="margin-top:4px;color:var(--mut)">«Від» більше за «до» (22:00–02:00) — доба переходить через північ.</label>
+<button id="reset" class="sec" type="button" style="margin-top:8px">Скинути фільтр</button></section>
 
 <p id="status" role="status"></p>
-<section><h2>Звіт</h2><div id="out"></div>
+<section><h2>Звіт <span id="count"></span></h2><div id="out"></div>
 <div class="bar"><button id="docx" type="button">Завантажити .docx</button>
 <button id="clear" class="sec" type="button">Очистити</button>
 <button id="test" class="sec" type="button">Самотест</button></div></section>
@@ -301,10 +301,14 @@ function readFilter() {
     .map(t => (/^(?:б\/н|бн|0)$/i.test(t) ? 0 : parseInt(t, 10))).filter(n => !Number.isNaN(n)));
   return { day: $('day').value.replace(/-/g, ''), from: normTime($('from').value), to: normTime($('to').value), targets };
 }
-const visible = () => ($('apply').checked ? records.filter(r => matches(r, readFilter())) : records);
+
+// The filter is live: records stay stored, only the report view and .docx are narrowed.
+const visible = () => records.filter(r => matches(r, readFilter()));
 
 function render() {
-  $('out').replaceChildren(...buildReport(visible()).map(({ t, b }) => {
+  const vis = visible();
+  $('count').textContent = `(${vis.length} із ${records.length})`;
+  $('out').replaceChildren(...buildReport(vis).map(({ t, b }) => {
     const p = document.createElement('p'); p.textContent = t; if (b) p.className = 'b'; return p;
   }));
 }
@@ -331,20 +335,28 @@ $('add').onclick = () => {
   if (isExplosion(lines)) return status('Пропущено: результат «вибух» у звіт не входить.');
   const r = parseMessage({ date: today(), time: '', lines }, false);
   if (!r) return status('Не розпізнано: потрібні «Час:» та «Опис:» або рядки «Ціль N» і опис.');
-  status(addRecords([r]) ? 'Запис додано.' : 'Такий запис уже є.');
+  const added = addRecords([r]);
+  status(!added ? 'Такий запис уже є.' : matches(r, readFilter()) ? 'Запис додано.'
+    : 'Запис додано, але він не підпадає під поточний фільтр. Натисніть «Скинути фільтр».');
   $('paste').value = '';
 };
 
 $('pick').onclick = async () => {
   const f = $('file').files[0];
   if (!f) return status('Оберіть файл чату.');
-  const flt = readFilter(), msgs = readChat(await f.text());
-  const found = msgs.map(m => parseMessage(m, true)).filter(r => r && matches(r, flt));
+  const msgs = readChat(await f.text());
+  const found = msgs.map(m => parseMessage(m, true)).filter(Boolean);
   const skipped = msgs.filter(m => isExplosion(m.lines)).length;
-  status(`Повідомлень у чаті: ${msgs.length}. Підійшло під фільтр: ${found.length}. Нових додано: ${addRecords(found)}. Пропущено «вибух»: ${skipped}.`);
+  // Without a date the whole chat would fill the report, so default to the newest day found.
+  if (!$('day').value && found.length) {
+    const [d, m, y] = found.reduce((a, r) => (sortKey(r) > sortKey(a) ? r : a)).date.split('.');
+    $('day').value = `${y}-${m}-${d}`;
+  }
+  status(`Повідомлень у чаті: ${msgs.length}. Звітів знайдено: ${found.length}. Нових додано: ${addRecords(found)}. Пропущено «вибух»: ${skipped}.`);
 };
 
-for (const id of ['day', 'from', 'to', 'targets', 'apply']) $(id).addEventListener('input', render);
+for (const id of ['day', 'from', 'to', 'targets']) $(id).addEventListener('input', render);
+$('reset').onclick = () => { for (const id of ['day', 'from', 'to', 'targets']) $(id).value = ''; render(); };
 
 $('docx').onclick = () => {
   const rs = visible();

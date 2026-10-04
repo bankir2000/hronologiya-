@@ -1,6 +1,6 @@
 "use strict";
 // Bump CACHE on every release so installed copies pick up the new files.
-const CACHE = "hronologiya-v1";
+const CACHE = "hronologiya-v3";
 const ASSETS = ["./", "index.html", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png",
   "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png", "icons/favicon-32.png"];
 
