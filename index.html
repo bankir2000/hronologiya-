@@ -1,70 +1,352 @@
 <!doctype html>
-<html lang="uk"><head><meta charset="utf-8">
+<html lang="uk" data-theme="night">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#d8d2ba">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" type="image/svg+xml" href="icons/icon.svg">
-<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Хронологія">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Хронологія подій</title>
+<meta name="theme-color" content="#0d130e">
+<title>Хронологія подій — Тактичний звітний центр</title>
+<!-- Tailwind CSS via CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest"></script>
 <style>
-:root{--bg:#d8d2ba;--panel:#ebe6d0;--ink:#1d2618;--mut:#5b6347;--acc:#4a5d23;--accInk:#f1efd9;--line:#8c8a62;--paper:#f6f3e4}
-:root[data-theme=night]{--bg:#0b100c;--panel:#131a14;--ink:#c5d3b2;--mut:#7f9170;--acc:#c9a227;--accInk:#0b100c;--line:#2b3a2d;--paper:#0f150f}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,"Segoe UI",Roboto,sans-serif;
- padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-main{max-width:920px;margin:0 auto;padding:10px}
-.top{display:flex;justify-content:space-between;align-items:center;gap:8px;border-left:6px solid var(--acc);padding-left:10px;border-bottom:3px double var(--line);padding-bottom:6px}
-h1{margin:0;font-size:clamp(1rem,4.5vw,1.5rem);text-transform:uppercase;letter-spacing:.08em}
-h2{margin:0 0 8px;font-size:.85rem;text-transform:uppercase;letter-spacing:.14em;color:var(--acc)}
-section{background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--acc);border-radius:4px;padding:10px;margin:10px 0}
-textarea,input[type=text],input[type=date],input[type=time],input[type=file]{width:100%;min-height:44px;font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:8px}
-textarea{min-height:110px}
-label{display:block;font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--mut)}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
-.wide{grid-column:1/-1}
-button{min-height:44px;padding:8px 14px;font:inherit;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--accInk);background:var(--acc);border:0;border-radius:4px;cursor:pointer}
-button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
-.chk{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:.95rem;text-transform:none;letter-spacing:0;color:var(--ink)}
-.chk input{width:22px;height:22px}
-#status{min-height:1.4em;color:var(--mut)}
-#out{background:var(--paper);border:1px solid var(--line);padding:10px;overflow-x:auto}
-#out p{margin:0;min-height:1em;font:15px/1.35 "Times New Roman",serif;white-space:pre-wrap}
-#out p.b{font-weight:700}
-.bar{position:sticky;bottom:0;display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;padding:8px;background:var(--panel);border-top:2px solid var(--acc)}
-.bar button{flex:1 1 130px}
-@media(max-width:480px){button{width:100%}}
-</style></head><body><main>
-<div class="top"><h1>Хронологія подій</h1><button id="theme" class="sec" type="button"></button></div>
+  :root {
+    --bg-main: #f4f3ec;
+    --card-bg: #ffffff;
+    --card-border: #e2dfd2;
+    --text-primary: #192015;
+    --text-muted: #5e6653;
+    --accent: #485f26;
+    --accent-hover: #3b4e1f;
+    --accent-light: #eef2e6;
+    --accent-ink: #fdfdf9;
+    --paper-bg: #faf9f5;
+    --report-border: #dcd8c8;
+    --badge-bg: #e6e4d5;
+    --badge-text: #2f3824;
+    --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+  :root[data-theme="night"] {
+    --bg-main: #0b100c;
+    --card-bg: #121813;
+    --card-border: #232f24;
+    --text-primary: #dbe4d2;
+    --text-muted: #809276;
+    --accent: #d8aa2b;
+    --accent-hover: #e5b93d;
+    --accent-light: #211c08;
+    --accent-ink: #0b100c;
+    --paper-bg: #0d130e;
+    --report-border: #1e281f;
+    --badge-bg: #1c261e;
+    --badge-text: #b6c9a8;
+  }
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+  .font-mono-code {
+    font-family: var(--font-mono);
+  }
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(120, 140, 110, 0.3); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(120, 140, 110, 0.5); }
+  
+  .glass-panel {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+  }
+  .custom-input {
+    background: var(--paper-bg);
+    border: 1px solid var(--card-border);
+    color: var(--text-primary);
+  }
+  .custom-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(216, 170, 43, 0.2);
+  }
+</style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-amber-500/20">
 
-<section><h2>Ввід: вставити СМС</h2>
-<textarea id="paste" placeholder="Формат «Дата:/Час:/…» або «Ціль N»"></textarea>
-<button id="add" type="button">Додати</button></section>
+<!-- Верхня навігаційна панель / Хедер -->
+<header class="sticky top-0 z-40 border-b backdrop-blur-md transition-colors" style="background-color: rgba(11,16,12,0.85); border-color: var(--card-border);">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+    <!-- Логотип та Назва -->
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-lg shadow-sm border" style="background: var(--accent); color: var(--accent-ink); border-color: var(--card-border);">
+        <i data-lucide="crosshair" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-bold tracking-tight text-base sm:text-lg flex items-center gap-2" style="color: var(--text-primary)">
+            Хронологія подій
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono-code tracking-wider uppercase font-semibold" style="background: var(--accent-light); color: var(--accent);">ППО / МВГ</span>
+          </h1>
+        </div>
+        <p class="text-xs hidden sm:block" style="color: var(--text-muted)">Аналітичний журнал бойової роботи та генерація звітів</p>
+      </div>
+    </div>
 
-<section><h2>Ввід: чат WhatsApp</h2>
-<input type="file" id="file" accept=".txt">
-<button id="pick" type="button" style="margin-top:8px">Завантажити з чату</button></section>
+    <!-- Дії у хедері -->
+    <div class="flex items-center gap-2.5">
+      <div id="connection-status" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono-code border" style="background: var(--badge-bg); border-color: var(--card-border); color: var(--badge-text);">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        ОФЛАЙН ГОТОВО
+      </div>
+      
+      <button id="theme" type="button" class="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition shadow-sm hover:opacity-90" style="background: var(--card-bg); border-color: var(--card-border); color: var(--text-primary);" title="Перемкнути тему">
+        <i data-lucide="sun" id="theme-icon" class="w-4 h-4 text-amber-400"></i>
+        <span id="theme-text" class="hidden sm:inline">День</span>
+      </button>
+    </div>
+  </div>
+</header>
 
-<section><h2>Фільтр</h2>
-<div class="grid">
-<div><label for="day">Дата</label><input type="date" id="day"></div>
-<div><label for="from">Час від</label><input type="time" id="from"></div>
-<div><label for="to">Час до</label><input type="time" id="to"></div>
-<div class="wide"><label for="targets">Цілі (через кому, «б/н» — без номера)</label><input type="text" id="targets" inputmode="text" placeholder="8106, 9841, б/н"></div>
-</div>
-<label class="chk" style="margin-top:4px;color:var(--mut)">«Від» більше за «до» (22:00–02:00) — доба переходить через північ.</label>
-<button id="reset" class="sec" type="button" style="margin-top:8px">Скинути фільтр</button></section>
+<!-- Головний контент -->
+<main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
 
-<p id="status" role="status"></p>
-<section><h2>Звіт <span id="count"></span></h2><div id="out"></div>
-<div class="bar"><button id="docx" type="button">Завантажити .docx</button>
-<button id="clear" class="sec" type="button">Очистити</button>
-<button id="test" class="sec" type="button">Самотест</button></div></section>
+  <!-- Секція швидких показників / Статус -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div class="glass-panel p-3.5 rounded-xl flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style="background: var(--badge-bg); color: var(--accent);">
+        <i data-lucide="layers" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <p class="text-xs font-medium" style="color: var(--text-muted)">Всього записів</p>
+        <p id="stat-total" class="text-lg font-bold font-mono-code leading-tight" style="color: var(--text-primary)">0</p>
+      </div>
+    </div>
+
+    <div class="glass-panel p-3.5 rounded-xl flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style="background: var(--badge-bg); color: var(--accent);">
+        <i data-lucide="filter" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <p class="text-xs font-medium" style="color: var(--text-muted)">У вибірці</p>
+        <p id="stat-visible" class="text-lg font-bold font-mono-code leading-tight" style="color: var(--text-primary)">0</p>
+      </div>
+    </div>
+
+    <div class="glass-panel p-3.5 rounded-xl flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style="background: var(--badge-bg); color: var(--accent);">
+        <i data-lucide="target" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <p class="text-xs font-medium" style="color: var(--text-muted)">Унікальних цілей</p>
+        <p id="stat-targets" class="text-lg font-bold font-mono-code leading-tight" style="color: var(--text-primary)">0</p>
+      </div>
+    </div>
+
+    <div class="glass-panel p-3.5 rounded-xl flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style="background: var(--badge-bg); color: var(--accent);">
+        <i data-lucide="zap" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <p class="text-xs font-medium" style="color: var(--text-muted)">Застосувань зброї</p>
+        <p id="stat-actions" class="text-lg font-bold font-mono-code leading-tight" style="color: var(--text-primary)">0</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Двоколонковий блок: Ввід даних та Фільтрація -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+    
+    <!-- Ліва колонка: Ввід СМС та WhatsApp -->
+    <div class="lg:col-span-6 space-y-5">
+      
+      <!-- Вкладки / Картка ручного введення -->
+      <section class="glass-panel rounded-xl overflow-hidden shadow-sm">
+        <div class="px-5 py-4 border-b flex items-center justify-between" style="border-color: var(--card-border);">
+          <div class="flex items-center gap-2">
+            <i data-lucide="message-square-plus" class="w-4 h-4" style="color: var(--accent);"></i>
+            <h2 class="text-sm font-bold uppercase tracking-wider" style="color: var(--text-primary);">Ввід: Вставити СМС / Донесення</h2>
+          </div>
+          <span class="text-[11px] font-mono-code" style="color: var(--text-muted);">Шаблон «Час:/Опис:» або «Ціль N»</span>
+        </div>
+        
+        <div class="p-5 space-y-4">
+          <div class="relative">
+            <textarea id="paste" class="custom-input w-full p-3.5 rounded-lg text-sm font-mono-code leading-relaxed transition resize-y focus:ring-1" rows="5" placeholder="Вставте текст повідомлення:&#10;Дата: 13.05.2026&#10;Час: 04:01&#10;№ цілі: 8106&#10;Н.П.: ВІНТЕНЦІ&#10;Підрозділ: 13 озкб&#10;Позивний: МВГ П 27&#10;Зброя: із ЗКУ Viktor MR-2 14.5&#10;Висота: 1500&#10;Опис: А-35, Д-3000, К-220, обстріляно 1 БПЛА&#10;Результат: не знищено&#10;Набій 14,5х114 мм (ЗПУ, КПВТ) БЗТ - 27"></textarea>
+          </div>
+
+          <div class="flex items-center justify-between gap-3 pt-1">
+            <div class="text-xs" style="color: var(--text-muted);">
+              Автовизначення формату та підрахунок набоїв
+            </div>
+            <button id="add" type="button" class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm transition shadow hover:brightness-110 active:scale-[0.98]" style="background: var(--accent); color: var(--accent-ink);">
+              <i data-lucide="plus-circle" class="w-4 h-4"></i>
+              Додати в журнал
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Імпорт чату WhatsApp -->
+      <section class="glass-panel rounded-xl overflow-hidden shadow-sm">
+        <div class="px-5 py-4 border-b flex items-center justify-between" style="border-color: var(--card-border);">
+          <div class="flex items-center gap-2">
+            <i data-lucide="file-up" class="w-4 h-4" style="color: var(--accent);"></i>
+            <h2 class="text-sm font-bold uppercase tracking-wider" style="color: var(--text-primary);">Імпорт: Чат WhatsApp (.txt)</h2>
+          </div>
+          <span class="text-[11px] font-mono-code" style="color: var(--text-muted);">Експорт без медіа</span>
+        </div>
+
+        <div class="p-5 space-y-4">
+          <label for="file" class="flex flex-col items-center justify-center w-full p-4 border-2 border-dashed rounded-lg cursor-pointer transition hover:border-amber-500/50" style="border-color: var(--card-border); background: var(--paper-bg);">
+            <div class="flex flex-col items-center justify-center text-center">
+              <i data-lucide="upload-cloud" class="w-8 h-8 mb-2" style="color: var(--text-muted);"></i>
+              <p class="text-xs font-medium" style="color: var(--text-primary);"><span class="font-bold underline">Оберіть текстовий файл</span> експорту чату</p>
+              <p class="text-[11px] mt-1" style="color: var(--text-muted);">Формат .txt (повідомлення з датою та часом)</p>
+              <span id="file-name" class="mt-2 text-xs font-mono-code text-amber-500 font-semibold hidden"></span>
+            </div>
+            <input type="file" id="file" accept=".txt" class="hidden">
+          </label>
+
+          <button id="pick" type="button" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border font-semibold text-sm transition hover:bg-black/5 dark:hover:bg-white/5" style="border-color: var(--card-border); color: var(--text-primary);">
+            <i data-lucide="hard-drive-download" class="w-4 h-4" style="color: var(--accent);"></i>
+            Завантажити та обробити чат
+          </button>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Права колонка: Фільтрація та керування -->
+    <div class="lg:col-span-6 space-y-5">
+      
+      <section class="glass-panel rounded-xl overflow-hidden shadow-sm">
+        <div class="px-5 py-4 border-b flex items-center justify-between" style="border-color: var(--card-border);">
+          <div class="flex items-center gap-2">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4" style="color: var(--accent);"></i>
+            <h2 class="text-sm font-bold uppercase tracking-wider" style="color: var(--text-primary);">Параметри вибірки / Фільтр</h2>
+          </div>
+          <button id="reset" type="button" class="text-xs font-medium flex items-center gap-1.5 transition hover:underline" style="color: var(--accent);">
+            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+            Скинути все
+          </button>
+        </div>
+
+        <div class="p-5 space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label for="day" class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Дата доби</label>
+              <div class="relative">
+                <input type="date" id="day" class="custom-input w-full px-3 py-2 rounded-lg text-sm font-mono-code">
+              </div>
+            </div>
+            <div>
+              <label for="from" class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Час від</label>
+              <input type="time" id="from" class="custom-input w-full px-3 py-2 rounded-lg text-sm font-mono-code">
+            </div>
+            <div>
+              <label for="to" class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Час до</label>
+              <input type="time" id="to" class="custom-input w-full px-3 py-2 rounded-lg text-sm font-mono-code">
+            </div>
+          </div>
+
+          <div>
+            <label for="targets" class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">
+              Фільтр за номерами цілей <span class="normal-case font-normal">(через кому або пробіл)</span>
+            </label>
+            <div class="relative">
+              <input type="text" id="targets" inputmode="text" placeholder="наприклад: 8106, 9841, б/н" class="custom-input w-full pl-9 pr-3 py-2 rounded-lg text-sm font-mono-code">
+              <i data-lucide="hash" class="w-4 h-4 absolute left-3 top-2.5" style="color: var(--text-muted);"></i>
+            </div>
+          </div>
+
+          <div class="flex items-start gap-2.5 p-3 rounded-lg text-xs leading-relaxed border" style="background: var(--paper-bg); border-color: var(--card-border); color: var(--text-muted);">
+            <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5" style="color: var(--accent);"></i>
+            <div>
+              Якщо «Час від» більше за «Час до» (наприклад, <strong>22:00 – 02:00</strong>), доба автоматично переходить через північ у наступний календарний день.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Інформаційний рядок стану системи -->
+      <div id="status-card" class="glass-panel p-4 rounded-xl flex items-center justify-between border" style="border-color: var(--card-border);">
+        <div class="flex items-center gap-3">
+          <div id="status-dot" class="w-3 h-3 rounded-full bg-emerald-500 shrink-0"></div>
+          <div>
+            <p class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-muted)">Стан процесу</p>
+            <p id="status" role="status" class="text-sm font-medium" style="color: var(--text-primary)">Готовий до роботи. Введіть або імпортуйте дані.</p>
+          </div>
+        </div>
+        <button id="test" type="button" class="shrink-0 ml-3 px-3 py-1.5 rounded-lg border text-xs font-mono-code font-semibold transition hover:bg-black/5 dark:hover:bg-white/5" style="border-color: var(--card-border); color: var(--text-muted);" title="Запустити внутрішній тест парсера">
+          <i data-lucide="check-check" class="w-3.5 h-3.5 inline mr-1 text-emerald-500"></i>Тест
+        </button>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Нижня велика секція: Попередній перегляд сформованого звіту -->
+  <section class="glass-panel rounded-xl overflow-hidden shadow-md flex flex-col border" style="border-color: var(--card-border);">
+    
+    <!-- Заголовок перегляду звіту -->
+    <div class="px-5 py-4 border-b flex flex-wrap items-center justify-between gap-3" style="border-color: var(--card-border); background: var(--card-bg);">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: var(--accent); color: var(--accent-ink);">
+          <i data-lucide="file-text" class="w-4 h-4"></i>
+        </div>
+        <div>
+          <h2 class="text-base font-bold flex items-center gap-2" style="color: var(--text-primary);">
+            Зведений звіт
+            <span id="count" class="text-xs font-mono-code font-normal px-2 py-0.5 rounded-full border" style="background: var(--badge-bg); border-color: var(--card-border); color: var(--badge-text);">(0 із 0)</span>
+          </h2>
+          <p class="text-xs" style="color: var(--text-muted);">Відформатовано відповідно до офіційного армійського стандарту звітів</p>
+        </div>
+      </div>
+
+      <!-- Кнопки експорту та очищення -->
+      <div class="flex items-center gap-2">
+        <button id="clear" type="button" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition text-rose-500 hover:bg-rose-500/10 border-rose-500/30">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          Очистити
+        </button>
+        <button id="docx" type="button" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition shadow hover:brightness-110 active:scale-[0.98]" style="background: var(--accent); color: var(--accent-ink);">
+          <i data-lucide="download" class="w-4 h-4"></i>
+          Завантажити .docx
+        </button>
+      </div>
+    </div>
+
+    <!-- Текстове поле звіту (стилізоване під офіційний документ) -->
+    <div class="p-6 relative">
+      <div class="rounded-lg p-6 font-serif border shadow-inner min-h-[260px] overflow-x-auto text-[15px] leading-relaxed select-text" id="out-container" style="background: var(--paper-bg); border-color: var(--report-border); color: var(--text-primary);">
+        <div id="out" class="space-y-1">
+          <!-- Сюди рендеряться параграфи звіту -->
+          <div class="text-center py-12 font-sans italic text-sm" style="color: var(--text-muted)">
+            <i data-lucide="file-question" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
+            Журнал наразі порожній. Додайте донесення або завантажте файл чату вище.
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
 </main>
+
+<!-- Футер -->
+<footer class="mt-8 border-t py-4 text-center text-xs" style="border-color: var(--card-border); color: var(--text-muted);">
+  <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+    <div>Тактичний модуль обліку вогневої роботи та хронології перехоплень</div>
+    <div class="font-mono-code text-[11px]">Автономна генерація DOCX без зовнішніх бібліотек</div>
+  </div>
+</footer>
+
 <script>
 'use strict';
 // ===================== core: parsing and chronology =====================
@@ -79,7 +361,6 @@ const normDate = s => {
   const m = /(\d{2})\.(\d{2})\.(\d{2,4})/.exec(s || '');
   return m ? `${m[1]}.${m[2]}.${m[3].length === 2 ? '20' + m[3] : m[3]}` : '';
 };
-// Date first, so 00:10 on the next day sorts after 23:50 (the macro compares time only).
 const sortKey = r => { const [d, m, y] = r.date.split('.'); return `${y}${m}${d}${r.time}`; };
 const properCase = s => (s ? s[0].toUpperCase() + s.slice(1).toLowerCase() : s);
 const lineValue = (lines, label) => {
@@ -97,7 +378,6 @@ function summarizeAmmo(lines) {
     const rz = /^Розхід\s+(\S+)\s*-\s*(\d+)\s*$/i.exec(l);
     if (am) {
       qty = Number(am[1]);
-      // Explicit caliber pattern: the macro's lazy regex breaks on "(Canik, Browning) - 100".
       const c = /(\d[\d.,]*\s*[хx×]\s*\d+(?:\s*мм)?)/i.exec(l);
       cal = c ? c[1].trim() : l.replace(/^\S+\s+/, '').replace(/\([^)]*\)/g, '').replace(/-\s*\d+\s*$/, '').trim();
     } else if (rz) { cal = `Розхід ${rz[1]}`; qty = Number(rz[2]); } else continue;
@@ -222,7 +502,6 @@ function matches(r, f) {
 }
 
 // ===================== infrastructure: WhatsApp, docx, storage =====================
-/** Splits a WhatsApp .txt export into messages; continuation lines join the previous message. */
 function readChat(text) {
   const msgs = [];
   for (const raw of clean(text).split(/\r?\n/)) {
@@ -235,7 +514,6 @@ function readChat(text) {
   return msgs.filter(x => !x.system);
 }
 
-// Minimal "stored" ZIP writer: a real .docx without external libraries, so it works offline.
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const CRC = (() => {
   const t = new Uint32Array(256);
@@ -284,10 +562,17 @@ const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage
 
 // ===================== presentation =====================
 const $ = id => document.getElementById(id);
-const status = t => { $('status').textContent = t; };
+const status = (t, isError = false) => {
+  const el = $('status');
+  el.textContent = t;
+  const dot = $('status-dot');
+  if (dot) {
+    dot.className = isError ? 'w-3 h-3 rounded-full bg-rose-500 shrink-0' : 'w-3 h-3 rounded-full bg-emerald-500 shrink-0';
+  }
+};
 const today = () => { const d = new Date(); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`; };
+
 let records = (() => {
-  // Stored records are re-parsed from their source text, so rule changes (вибух, не застосовувалась) apply retroactively.
   try {
     return JSON.parse(lsGet(STORE) || '[]').map(r => {
       const lines = (r.key || '').split('\n');
@@ -302,15 +587,59 @@ function readFilter() {
   return { day: $('day').value.replace(/-/g, ''), from: normTime($('from').value), to: normTime($('to').value), targets };
 }
 
-// The filter is live: records stay stored, only the report view and .docx are narrowed.
 const visible = () => records.filter(r => matches(r, readFilter()));
+
+function updateStats(vis) {
+  if ($('stat-total')) $('stat-total').textContent = records.length;
+  if ($('stat-visible')) $('stat-visible').textContent = vis.length;
+  if ($('stat-targets')) {
+    const uniqTargets = new Set(vis.map(r => r.target));
+    $('stat-targets').textContent = uniqTargets.size;
+  }
+  if ($('stat-actions')) {
+    const fired = vis.filter(r => r.kind === 'grouped').length;
+    $('stat-actions').textContent = fired;
+  }
+}
 
 function render() {
   const vis = visible();
   $('count').textContent = `(${vis.length} із ${records.length})`;
-  $('out').replaceChildren(...buildReport(vis).map(({ t, b }) => {
-    const p = document.createElement('p'); p.textContent = t; if (b) p.className = 'b'; return p;
+  updateStats(vis);
+
+  const outEl = $('out');
+  if (!vis.length) {
+    outEl.innerHTML = `
+      <div class="text-center py-12 font-sans italic text-sm" style="color: var(--text-muted)">
+        <i data-lucide="file-question" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
+        ${records.length ? 'За вказаними фільтрами записів не знайдено. Спробуйте змінити критерії пошуку.' : 'Журнал наразі порожній. Додайте донесення або завантажте файл чату вище.'}
+      </div>`;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+
+  const paras = buildReport(vis);
+  outEl.replaceChildren(...paras.map(({ t, b }) => {
+    const p = document.createElement('p');
+    p.textContent = t || '\u00A0';
+    p.style.margin = '0';
+    p.style.minHeight = '1.3em';
+    p.style.whiteSpace = 'pre-wrap';
+    if (b) {
+      p.className = 'font-bold';
+      p.style.color = 'var(--text-primary)';
+      if (t.startsWith('Ціль')) {
+        p.style.marginTop = '0.5em';
+        p.style.paddingLeft = '4px';
+        p.style.borderLeft = '3px solid var(--accent)';
+      }
+    } else {
+      p.style.color = 'var(--text-primary)';
+    }
+    return p;
   }));
+
+  if (window.lucide) lucide.createIcons();
 }
 
 function addRecords(list) {
@@ -322,53 +651,92 @@ function addRecords(list) {
 
 function setTheme(t) {
   document.documentElement.dataset.theme = t;
-  $('theme').textContent = t === 'night' ? '☀ День' : '☾ Ніч';
-  document.querySelector('meta[name=theme-color]').content = t === 'night' ? '#0b100c' : '#d8d2ba';
+  const isNight = t === 'night';
+  const icon = $('theme-icon');
+  const text = $('theme-text');
+  if (icon && text) {
+    icon.setAttribute('data-lucide', isNight ? 'sun' : 'moon');
+    icon.className = isNight ? 'w-4 h-4 text-amber-400' : 'w-4 h-4 text-slate-700';
+    text.textContent = isNight ? 'День' : 'Ніч';
+  }
+  const metaTheme = document.querySelector('meta[name=theme-color]');
+  if (metaTheme) metaTheme.content = isNight ? '#0b100c' : '#f4f3ec';
   lsSet(THEME, t);
+  if (window.lucide) lucide.createIcons();
 }
+
 $('theme').onclick = () => setTheme(document.documentElement.dataset.theme === 'night' ? 'day' : 'night');
 setTheme(lsGet(THEME) || (matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'day'));
 
 $('add').onclick = () => {
-  const lines = clean($('paste').value).split(/\r?\n/);
+  const pasteVal = $('paste').value;
+  if (!pasteVal.trim()) return status('Будь ласка, вставте текст повідомлення перед додаванням.', true);
+  const lines = clean(pasteVal).split(/\r?\n/);
   while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
   if (isExplosion(lines)) return status('Пропущено: результат «вибух» у звіт не входить.');
   const r = parseMessage({ date: today(), time: '', lines }, false);
-  if (!r) return status('Не розпізнано: потрібні «Час:» та «Опис:» або рядки «Ціль N» і опис.');
+  if (!r) return status('Не розпізнано: потрібні «Час:» та «Опис:» або рядки «Ціль N» і опис.', true);
   const added = addRecords([r]);
-  status(!added ? 'Такий запис уже є.' : matches(r, readFilter()) ? 'Запис додано.'
-    : 'Запис додано, але він не підпадає під поточний фільтр. Натисніть «Скинути фільтр».');
+  status(!added ? 'Такий запис уже є в журналі.' : matches(r, readFilter()) ? 'Запис успішно додано до журналу!'
+    : 'Запис додано, але він не підпадає під поточний фільтр. Натисніть «Скинути все».');
   $('paste').value = '';
 };
 
+// File upload feedback
+$('file').addEventListener('change', e => {
+  const f = e.target.files[0];
+  const nameEl = $('file-name');
+  if (f && nameEl) {
+    nameEl.textContent = `Вибрано: ${f.name} (${Math.round(f.size/1024)} КБ)`;
+    nameEl.classList.remove('hidden');
+  }
+});
+
 $('pick').onclick = async () => {
   const f = $('file').files[0];
-  if (!f) return status('Оберіть файл чату.');
-  const msgs = readChat(await f.text());
-  const found = msgs.map(m => parseMessage(m, true)).filter(Boolean);
-  const skipped = msgs.filter(m => isExplosion(m.lines)).length;
-  // Without a date the whole chat would fill the report, so default to the newest day found.
-  if (!$('day').value && found.length) {
-    const [d, m, y] = found.reduce((a, r) => (sortKey(r) > sortKey(a) ? r : a)).date.split('.');
-    $('day').value = `${y}-${m}-${d}`;
+  if (!f) return status('Оберіть текстовий файл чату (.txt).', true);
+  try {
+    status('Обробка файлу чату...');
+    const msgs = readChat(await f.text());
+    const found = msgs.map(m => parseMessage(m, true)).filter(Boolean);
+    const skipped = msgs.filter(m => isExplosion(m.lines)).length;
+    if (!$('day').value && found.length) {
+      const [d, m, y] = found.reduce((a, r) => (sortKey(r) > sortKey(a) ? r : a)).date.split('.');
+      $('day').value = `${y}-${m}-${d}`;
+    }
+    const added = addRecords(found);
+    status(`Повідомлень: ${msgs.length}. Звітів: ${found.length}. Додано нових: ${added}. Пропущено «вибух»: ${skipped}.`);
+  } catch (err) {
+    status('Помилка читання файлу: ' + err.message, true);
   }
-  status(`Повідомлень у чаті: ${msgs.length}. Звітів знайдено: ${found.length}. Нових додано: ${addRecords(found)}. Пропущено «вибух»: ${skipped}.`);
 };
 
 for (const id of ['day', 'from', 'to', 'targets']) $(id).addEventListener('input', render);
-$('reset').onclick = () => { for (const id of ['day', 'from', 'to', 'targets']) $(id).value = ''; render(); };
+$('reset').onclick = () => { for (const id of ['day', 'from', 'to', 'targets']) $(id).value = ''; render(); status('Фільтр скинуто. Відображено всі записи.'); };
 
 $('docx').onclick = () => {
   const rs = visible();
-  if (!rs.length) return status('Звіт порожній.');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(buildDocx(buildReport(rs)));
-  a.download = `Хронологія_${$('day').value || today()}.docx`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  if (!rs.length) return status('Звіт порожній. Немає даних для завантаження.', true);
+  try {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(buildDocx(buildReport(rs)));
+    a.download = `Хронологія_${$('day').value || today()}.docx`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    status('Файл .docx успішно сформовано та завантажено.');
+  } catch(err) {
+    status('Помилка при створенні .docx: ' + err.message, true);
+  }
 };
 
-$('clear').onclick = () => { if (confirm('Очистити весь звіт?')) { records = []; lsSet(STORE, '[]'); render(); } };
+$('clear').onclick = () => {
+  if (confirm('Очистити весь журнал та збережені записи?')) {
+    records = [];
+    lsSet(STORE, '[]');
+    render();
+    status('Журнал повністю очищено.');
+  }
+};
 
 $('test').onclick = () => {
   const res = [], ok = (n, c) => res.push(`${c ? '✓' : '✗'} ${n}`), e = { date: '', time: '' };
@@ -387,13 +755,21 @@ $('test').onclick = () => {
   ok('explosion: skipped', parseMessage({ date: '', time: '', lines: s }, true) === null && parseMessage({ date: '', time: '', lines: s.map(l => l.replace('вибух', 'не знищено')) }, true) !== null);
   const ns = parseMessage({ date: '', time: '', lines: s.map(l => l.replace('вибух', 'не застосовувалася')) }, true);
   ok('не застосовувалася: full text, section 1', !!ns && ns.kind === 'full' && ns.target === 8106 && ns.body.length === s.length);
-  status(res.join('   '));
+  status('Результати тесту: ' + res.join(' | '));
 };
 
+// Initial render
 render();
 
-// PWA: service workers need https or localhost, so skip registration for file://.
+// Icons initialization
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.lucide) lucide.createIcons();
+});
+setTimeout(() => { if (window.lucide) lucide.createIcons(); }, 100);
+
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
-  navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
+  navigator.serviceWorker.register('sw.js').catch(() => {});
 }
-</script></body></html>
+</script>
+</body>
+</html>
