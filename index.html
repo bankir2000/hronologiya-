@@ -59,6 +59,18 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 <label class="chk" style="margin-top:4px;color:var(--mut)">«Від» більше за «до» (22:00–02:00) — доба переходить через північ.</label>
 <button id="reset" class="sec" type="button" style="margin-top:8px">Скинути фільтр</button></section>
 
+<section><h2>Фільтр: ключові слова</h2>
+<div class="grid">
+<div><label for="kd">Дата</label><input type="date" id="kd"></div>
+<div><label for="kf">Час від</label><input type="time" id="kf"></div>
+<div><label for="kt">Час до</label><input type="time" id="kt"></div>
+<div class="wide"><label for="kw">Слова (через кому)</label><input type="text" id="kw" inputmode="text" autocomplete="off"></div>
+</div>
+<p id="kwHint" style="margin:8px 0 0;color:var(--mut);font-size:.9rem"></p>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+<button id="kwDef" class="sec" type="button">Слова за замовчуванням</button>
+<button id="kwReset" class="sec" type="button">Скинути дату й час</button></div></section>
+
 <p id="status" role="status"></p>
 <section><h2>Звіт <span id="count"></span></h2><div id="out"></div>
 <div class="bar"><button id="docx" type="button">Завантажити .docx</button>
@@ -221,6 +233,36 @@ function matches(r, f) {
   return (!f.from || r.time >= f.from) && (!f.to || r.time <= f.to);
 }
 
+// ===================== keyword filter: own date + time window, editable words =====================
+const DEFAULT_WORDS = 'штиль, заборона вогню, заборона застосування, заборона роботи';
+const normText = s => s.toLowerCase().replace(/\s+/g, ' ').trim();
+const parseWords = s => [...new Set(s.split(/[,;]+/).map(normText).filter(Boolean))];
+/** The filter exists only when date, both ends of the period and at least one word are set. */
+const kwActive = f => !!(f.day && f.from && f.to && f.words.length);
+
+/** Chat messages inside the window that contain any word, in chronological order. */
+function pickMessages(msgs, f) {
+  if (!kwActive(f)) return [];
+  const win = { day: f.day, from: f.from, to: f.to, targets: new Set() };
+  return msgs
+    .filter(m => matches({ date: m.date, time: m.time, target: 0 }, win) && f.words.some(w => normText(m.text).includes(w)))
+    .sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+}
+
+/** Paragraphs appended at the very end of the report. */
+function keywordParagraphs(list, f) {
+  if (!list.length) return [];
+  const day = `${f.day.slice(6, 8)}.${f.day.slice(4, 6)}.${f.day.slice(0, 4)}`;
+  const P = [{ t: `Повідомлення про заборону вогню та штиль за період ${day}, ${f.from}–${f.to}:`, b: true }, { t: '', b: false }];
+  for (const m of list) {
+    // Date is shown only when the window crosses midnight and the message belongs to the next day.
+    const head = `${m.date === day ? '' : m.date.slice(0, 5) + ' '}${m.time} `;
+    m.text.split('\n').forEach((l, i) => P.push({ t: i ? l : head + l, b: false }));
+    P.push({ t: '', b: false });
+  }
+  return P;
+}
+
 // ===================== infrastructure: WhatsApp, docx, storage =====================
 /** Splits a WhatsApp .txt export into messages; continuation lines join the previous message. */
 function readChat(text) {
@@ -278,9 +320,9 @@ function buildDocx(paras) {
   ]);
 }
 
-const STORE = 'chronology.v2', THEME = 'chronology.theme';
+const STORE = 'chronology.v2', THEME = 'chronology.theme', MSGS = 'chronology.msgs.v1', WORDS = 'chronology.words';
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
-const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage may be blocked */ } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); return true; } catch { return false; /* storage may be blocked or full */ } };
 
 // ===================== presentation =====================
 const $ = id => document.getElementById(id);
@@ -296,6 +338,14 @@ let records = (() => {
   } catch { return []; }
 })();
 
+// Non-report chat messages are kept so the keyword filter can be changed without reloading the chat.
+let chatMsgs = (() => { try { return JSON.parse(lsGet(MSGS) || '[]'); } catch { return []; } })();
+
+function readKw() {
+  return { day: $('kd').value.replace(/-/g, ''), from: normTime($('kf').value), to: normTime($('kt').value), words: parseWords($('kw').value) };
+}
+const fullReport = () => { const kw = readKw(); return [...buildReport(visible()), ...keywordParagraphs(pickMessages(chatMsgs, kw), kw)]; };
+
 function readFilter() {
   const targets = new Set($('targets').value.split(/[,;\s]+/).filter(Boolean)
     .map(t => (/^(?:б\/н|бн|0)$/i.test(t) ? 0 : parseInt(t, 10))).filter(n => !Number.isNaN(n)));
@@ -306,17 +356,33 @@ function readFilter() {
 const visible = () => records.filter(r => matches(r, readFilter()));
 
 function render() {
-  const vis = visible();
+  const vis = visible(), kw = readKw(), picked = pickMessages(chatMsgs, kw);
   $('count').textContent = `(${vis.length} із ${records.length})`;
-  $('out').replaceChildren(...buildReport(vis).map(({ t, b }) => {
+  $('out').replaceChildren(...[...buildReport(vis), ...keywordParagraphs(picked, kw)].map(({ t, b }) => {
     const p = document.createElement('p'); p.textContent = t; if (b) p.className = 'b'; return p;
   }));
+  $('kwHint').textContent = !kw.words.length ? 'Фільтр не діє: додайте хоча б одне слово.'
+    : !kwActive(kw) ? 'Фільтр не діє: вкажіть дату та період «від» і «до».'
+    : !chatMsgs.length ? 'Немає збережених повідомлень чату: завантажте чат WhatsApp.'
+    : `Знайдено: ${picked.length} (збережено повідомлень чату: ${chatMsgs.length}). Вони додаються в кінець звіту.`;
 }
 
 function addRecords(list) {
   let added = 0;
   for (const r of list) if (r && !records.some(x => x.key === r.key)) { records.push(r); added++; }
   lsSet(STORE, JSON.stringify(records)); render();
+  return added;
+}
+
+function addMessages(list) {
+  const seen = new Set(chatMsgs.map(m => `${m.date}|${m.time}|${m.text}`));
+  let added = 0;
+  for (const m of list) {
+    const k = `${m.date}|${m.time}|${m.text}`;
+    if (!seen.has(k)) { seen.add(k); chatMsgs.push(m); added++; }
+  }
+  if (!lsSet(MSGS, JSON.stringify(chatMsgs))) status('Увага: пам’ять браузера переповнена, повідомлення чату не збережуться після перезавантаження.');
+  render();
   return added;
 }
 
@@ -345,30 +411,43 @@ $('pick').onclick = async () => {
   const f = $('file').files[0];
   if (!f) return status('Оберіть файл чату.');
   const msgs = readChat(await f.text());
-  const found = msgs.map(m => parseMessage(m, true)).filter(Boolean);
+  const found = [], others = [];
+  for (const m of msgs) {
+    const r = parseMessage(m, true);
+    if (r) found.push(r);
+    else if (!isExplosion(m.lines)) {
+      const text = m.lines.map(l => l.replace(/\s+$/, '')).join('\n').trim();
+      if (text) others.push({ date: m.date, time: m.time, text });
+    }
+  }
   const skipped = msgs.filter(m => isExplosion(m.lines)).length;
   // Without a date the whole chat would fill the report, so default to the newest day found.
   if (!$('day').value && found.length) {
     const [d, m, y] = found.reduce((a, r) => (sortKey(r) > sortKey(a) ? r : a)).date.split('.');
     $('day').value = `${y}-${m}-${d}`;
   }
-  status(`Повідомлень у чаті: ${msgs.length}. Звітів знайдено: ${found.length}. Нових додано: ${addRecords(found)}. Пропущено «вибух»: ${skipped}.`);
+  const addedMsgs = addMessages(others);
+  status(`Повідомлень у чаті: ${msgs.length}. Звітів знайдено: ${found.length}. Нових додано: ${addRecords(found)}. Пропущено «вибух»: ${skipped}. Інших повідомлень збережено: ${addedMsgs}.`);
 };
 
 for (const id of ['day', 'from', 'to', 'targets']) $(id).addEventListener('input', render);
+$('kw').value = lsGet(WORDS) ?? DEFAULT_WORDS;
+for (const id of ['kd', 'kf', 'kt', 'kw']) $(id).addEventListener('input', () => { if (id === 'kw') lsSet(WORDS, $('kw').value); render(); });
+$('kwDef').onclick = () => { $('kw').value = DEFAULT_WORDS; lsSet(WORDS, DEFAULT_WORDS); render(); };
+$('kwReset').onclick = () => { for (const id of ['kd', 'kf', 'kt']) $(id).value = ''; render(); };
 $('reset').onclick = () => { for (const id of ['day', 'from', 'to', 'targets']) $(id).value = ''; render(); };
 
 $('docx').onclick = () => {
-  const rs = visible();
-  if (!rs.length) return status('Звіт порожній.');
+  const paras = fullReport();
+  if (!paras.length) return status('Звіт порожній.');
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(buildDocx(buildReport(rs)));
+  a.href = URL.createObjectURL(buildDocx(paras));
   a.download = `Хронологія_${$('day').value || today()}.docx`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 };
 
-$('clear').onclick = () => { if (confirm('Очистити весь звіт?')) { records = []; lsSet(STORE, '[]'); render(); } };
+$('clear').onclick = () => { if (confirm('Очистити весь звіт?')) { records = []; chatMsgs = []; lsSet(STORE, '[]'); lsSet(MSGS, '[]'); render(); } };
 
 $('test').onclick = () => {
   const res = [], ok = (n, c) => res.push(`${c ? '✓' : '✗'} ${n}`), e = { date: '', time: '' };
@@ -387,6 +466,18 @@ $('test').onclick = () => {
   ok('explosion: skipped', parseMessage({ date: '', time: '', lines: s }, true) === null && parseMessage({ date: '', time: '', lines: s.map(l => l.replace('вибух', 'не знищено')) }, true) !== null);
   const ns = parseMessage({ date: '', time: '', lines: s.map(l => l.replace('вибух', 'не застосовувалася')) }, true);
   ok('не застосовувалася: full text, section 1', !!ns && ns.kind === 'full' && ns.target === 8106 && ns.body.length === s.length);
+  const M = [
+    { date: '13.05.2026', time: '21.30', text: 'Штиль' },
+    { date: '13.05.2026', time: '23.10', text: 'Увага!\nЗаборона  вогню до особливого розпорядження' },
+    { date: '14.05.2026', time: '01.00', text: 'заборона роботи ЗРК' },
+    { date: '14.05.2026', time: '03.00', text: 'Заборона застосування' },
+    { date: '13.05.2026', time: '23.20', text: 'звичайне повідомлення' }];
+  const kf = { day: '20260513', from: '22.00', to: '02.00', words: parseWords(DEFAULT_WORDS) };
+  const got = pickMessages(M, kf);
+  ok('keywords: window + words, midnight, case/spaces', got.length === 2 && got[0].time === '23.10' && got[1].time === '01.00');
+  ok('keywords: no date/period -> no filter', !pickMessages(M, { ...kf, day: '' }).length && !pickMessages(M, { ...kf, to: '' }).length && !pickMessages(M, { ...kf, from: '' }).length);
+  const kp = keywordParagraphs(got, kf);
+  ok('keywords: appended block format', kp[0].b && kp[2].t === '23.10 Увага!' && kp[3].t.startsWith('Заборона') && kp.some(p => p.t === '14.05 01.00 заборона роботи ЗРК'));
   status(res.join('   '));
 };
 
