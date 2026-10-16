@@ -95,9 +95,12 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 // ===================== core: parsing and chronology =====================
 const T1 = 'Розрахунки через позиції яких відповідно до засобів відображення пролітала ціль та причини не застосування:';
 const T2 = 'Розрахунки, що вели вогонь на ураження цілей (застосування без знищення):';
-const MSG_START = /^(\d{2}\.\d{2}\.\d{2}),?\s+(\d{1,2}:\d{2})(?::\d{2})?\s+-\s+/;
+// Android: "13.05.26, 06:51 - Name: text"; iPhone: "[13.05.26, 06:51:12] Name: text".
+const MSG_START = /^\[?(\d{2}\.\d{2}\.\d{2,4}),?\s+(\d{1,2}:\d{2})(?::\d{2})?(?:\]\s*|\s+-\s+)/;
+// Service lines every export contains: they are not reports and would only clutter the saved messages.
+const NOISE = /^(?:Це повідомлення (?:було )?видалено\.?|Повідомлення та дзвінки захищено.*)$/;
 
-const clean = s => s.replace(/<Це повідомлення було відредаговано>/g, '').replace(/[\u200e\u200f]/g, '');
+const clean = s => s.replace(/<Це повідомлення було відредаговано>/g, '').replace(/[\u200e\u200f]/g, '').replace(/[\u202f\u00a0]/g, ' ');
 const pad = n => String(n).padStart(2, '0');
 const normTime = s => { const m = /(\d{1,2})[:.](\d{2})/.exec(s || ''); return m ? `${pad(m[1])}.${m[2]}` : ''; };
 const normDate = s => {
@@ -197,7 +200,8 @@ function parseMessage(msg, strict) {
   return r;
 }
 
-const REPORT_LABEL = /^(?:№ цілі|Результат|Позивний|Підрозділ|Зброя|Н\.П\.|Опис|Причина незнищення):/;
+// Only labels specific to a target report: daily status messages also use Підрозділ/Позивний/Н.П./Зброя.
+const REPORT_LABEL = /^(?:№ цілі|Результат|Опис|Причина незнищення):/;
 const ONE_LINE_REPORT = /№\s*цілі\s*:?\s*\d|^\d{1,2}\.\d{2}\.\d{2,4}\s+час\s+\d{1,2}:\d{2}/i;
 
 /** True if a message looks like an attempt to send a report (known labels or a "Ціль N" line), not ordinary chat. */
@@ -368,7 +372,7 @@ function readChat(text) {
       msgs.push({ date: normDate(m[1]), time: normTime(m[2]), lines: [s ? rest.slice(s[0].length) : ''], system: !s });
     } else if (msgs.length) msgs[msgs.length - 1].lines.push(raw);
   }
-  return msgs.filter(x => !x.system);
+  return msgs.filter(x => !x.system && !NOISE.test(x.lines.join(' ').trim()));
 }
 
 // Minimal "stored" ZIP writer: a real .docx without external libraries, so it works offline.
@@ -700,6 +704,10 @@ $('test').onclick = () => {
     && guessPlace({ date: '28.06.2026', time: '' }, 'без часу').time === '');
   ok('date filter: same day window as the report', matches({ date: gp.date, time: gp.time, target: 0 }, { day: '20260627', from: '', to: '', targets: new Set() })
     && !matches({ date: '28.06.2026', time: '05.04', target: 0 }, { day: '20260627', from: '', to: '', targets: new Set() }));
+  const ios = readChat('[22.09.26, 09:37:43] ~\u202fІм\'я: Ціль 5\n[22.09.26, 09:38:00] ~\u202fІм\'я: Це повідомлення було видалено.');
+  const and = readChat('13.05.26, 06:51 - Ім\'я: Ціль 5');
+  ok('chat: iPhone and Android formats both read, deleted skipped', ios.length === 1 && ios[0].time === '09.37' && ios[0].date === '22.09.2026' && ios[0].lines[0] === 'Ціль 5'
+    && and.length === 1 && and[0].time === '06.51');
   status(res.join('   '));
 };
 
