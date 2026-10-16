@@ -37,6 +37,16 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 #out p.b{font-weight:700}
 .bar{position:sticky;bottom:0;display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;padding:8px;background:var(--panel);border-top:2px solid var(--acc)}
 .bar button{flex:1 1 130px}
+.tabs{display:flex;gap:6px;margin-bottom:8px}
+.tabs .tab{flex:1 1 0;width:auto;background:transparent;color:var(--ink);border:1px solid var(--line)}
+.tabs .tab.on{background:var(--acc);color:var(--accInk);border-color:var(--acc)}
+.bad-item{background:var(--paper);border:1px solid var(--line);border-left:4px solid var(--acc);padding:8px 10px;margin:0 0 8px}
+.bad-item p{margin:0;font:15px/1.35 "Times New Roman",serif;white-space:pre-wrap}
+.bad-item .b{font-weight:700}
+.bad-item textarea{margin:0}
+.bad-item .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.bad-item .row button{flex:1 1 130px}
+.bad-item .why{font-weight:700;color:var(--acc);margin:2px 0 6px}
 @media(max-width:480px){button{width:100%}}
 </style></head><body><main>
 <div class="top"><h1>Хронологія подій</h1><button id="theme" class="sec" type="button"></button></div>
@@ -72,7 +82,10 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 <button id="kwReset" class="sec" type="button">Скинути дату й час</button></div></section>
 
 <p id="status" role="status"></p>
-<section><h2>Звіт <span id="count"></span></h2><div id="out"></div>
+<section><div class="tabs" role="tablist">
+<button id="tabRep" class="tab on" type="button" role="tab" aria-selected="true">Звіт <span id="count"></span></button>
+<button id="tabBad" class="tab" type="button" role="tab" aria-selected="false">Нерозпізнані <span id="badCount"></span></button></div>
+<div id="out"></div><div id="bad" hidden></div>
 <div class="bar"><button id="docx" type="button">Завантажити .docx</button>
 <button id="clear" class="sec" type="button">Очистити</button>
 <button id="test" class="sec" type="button">Самотест</button></div></section>
@@ -182,6 +195,87 @@ function parseMessage(msg, strict) {
     : text.includes('Результат:') ? parseLabeled(lines, msg) : parseLegacy(lines, msg, strict);
   if (r) r.key = text.trim();
   return r;
+}
+
+const REPORT_LABEL = /^(?:№ цілі|Результат|Позивний|Підрозділ|Зброя|Н\.П\.|Опис|Причина незнищення):/;
+const ONE_LINE_REPORT = /№\s*цілі\s*:?\s*\d|^\d{1,2}\.\d{2}\.\d{2,4}\s+час\s+\d{1,2}:\d{2}/i;
+
+/** True if a message looks like an attempt to send a report (known labels or a "Ціль N" line), not ordinary chat. */
+const looksLikeReport = lines => lines.some(l => REPORT_LABEL.test(l.trim()) || /^Ціль\s*:?\s*\d/i.test(l.trim()))
+  || ONE_LINE_REPORT.test(lines.join('\n').trim());
+
+/** Labeled format: lists every missing required field, not just the first one. */
+function explainLabeled(lines) {
+  const v = l => lineValue(lines, l), why = [];
+  if (!normTime(v('Час:'))) why.push('немає часу («Час:»)');
+  if (!v('Опис:')) why.push('немає опису («Опис:»)');
+  if (!parseInt(v('№ цілі:'), 10)) why.push('немає номера цілі («№ цілі:»)');
+  return why;
+}
+
+/** Names the typical way the target number is written wrongly, instead of a bare "missing". */
+function missingTarget(lines, text) {
+  if (lines.some(l => /^Ціль\s*:\s*\d/i.test(l.trim()))) return 'написано «Ціль: N», потрібно «Ціль N» (без двокрапки)';
+  if (/№\s*цілі\s*:?\s*\d/i.test(text)) return 'усе в одному рядку: потрібен окремий рядок «Ціль N»';
+  return 'немає номера цілі (рядок «Ціль N» або «№ цілі:»)';
+}
+
+/** Legacy format. In strict (chat) mode a missing "Ціль N" line rejects the message right away. */
+function explainLegacy(lines, strict) {
+  const i = lines.findIndex(l => /^Ціль\s/i.test(l.trim())), why = [], text = lines.join('\n');
+  if (i < 0) why.push(missingTarget(lines, text));
+  if (i < 0 && strict) return why;
+  const at = i < 0 ? 1 : i, head = lines.slice(0, i).join(' ');
+  if (strict && !normDate(head)) why.push(/(?:^|\D)\d\.\d{2}\.\d{2,4}/.test(head)
+    ? 'дата без нуля в дні (потрібно ДД.ММ.РРРР)' : 'немає дати (перед рядком «Ціль N»)');
+  if (lines.length < at + 2 || !lines[at + 1].trim()) why.push('немає опису (рядок після «Ціль N»)');
+  return why;
+}
+
+/** Reasons why parseMessage returned null; call it only for rejected, non-explosion messages. */
+function explainReject(lines, strict) {
+  if (!lines.join('').trim()) return ['порожнє повідомлення'];
+  const why = lines.join('\n').includes('Результат:') ? explainLabeled(lines) : explainLegacy(lines, strict);
+  return why.length ? why : ['невідомий формат'];
+}
+
+/** Fixes the typical typos (a colon after «Ціль», a day without a leading zero) so the message parses normally. */
+const repairLines = lines => lines.map(l => l
+  .replace(/^(\s*)Ціль\s*:\s*(\d)/i, (_, sp, d) => `${sp}Ціль ${d}`)
+  .replace(/^(\s*)(\d)(\.\d{2}\.\d{2,4})/, (_, sp, d, rest) => `${sp}0${d}${rest}`));
+
+/** Best guess of where a message sits in time: date/time written in the text, else the chat timestamp. */
+function guessPlace(b, text) {
+  const tm = /(\d{1,2}):(\d{2})/.exec(text), dm = /(\d{1,2})\.(\d{2})\.(\d{2,4})/.exec(text);
+  return {
+    date: dm ? normDate(`${pad(dm[1])}.${dm[2]}.${dm[3]}`) : b.date,
+    time: tm ? `${pad(tm[1])}.${tm[2]}` : b.time || '',
+  };
+}
+
+/** Fallback for a message the parser cannot read: text kept as-is, target/date/time guessed only for placement. */
+function manualRecord(b, lines) {
+  const text = lines.join('\n').trim(), at = guessPlace(b, text);
+  const tg = /(?:^|\n)\s*Ціль\s*:?\s*(\d+)/i.exec(text) || /№\s*цілі\s*:?\s*(\d+)/i.exec(text);
+  return {
+    kind: 'full', manual: true, key: text, body: lines.map(l => l.trim()).filter(Boolean),
+    target: tg ? parseInt(tg[1], 10) : 0, date: at.date, time: at.time || '99.99',
+  };
+}
+
+/** Rejected (possibly edited) message -> record. mode: parsed | fixed (typos repaired first) | asis (kept as text). */
+function toRecord(b, asIs = false) {
+  const lines = b.text.split('\n'), fixed = repairLines(lines);
+  const r = asIs ? null : parseMessage({ date: b.date, time: b.time, lines: fixed }, b.source === 'чат');
+  if (r) return { r, mode: fixed.join('\n') === lines.join('\n') ? 'parsed' : 'fixed' };
+  return { r: manualRecord(b, lines), mode: 'asis' };
+}
+
+/** Reasons why the current text still cannot be added normally; an empty list means it parses. */
+function checkBad(b) {
+  const lines = repairLines(b.text.split('\n')), strict = b.source === 'чат';
+  if (isExplosion(lines)) return ['результат «вибух»: такі повідомлення у звіт не входять'];
+  return parseMessage({ date: b.date, time: b.time, lines }, strict) ? [] : explainReject(lines, strict);
 }
 
 /** Groups records by target number; "б/н" (0) always goes last. */
@@ -320,7 +414,7 @@ function buildDocx(paras) {
   ]);
 }
 
-const STORE = 'chronology.v2', THEME = 'chronology.theme', MSGS = 'chronology.msgs.v1', WORDS = 'chronology.words';
+const STORE = 'chronology.v2', THEME = 'chronology.theme', MSGS = 'chronology.msgs.v1', WORDS = 'chronology.words', BAD = 'chronology.bad.v1', DONE = 'chronology.baddone.v1';
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); return true; } catch { return false; /* storage may be blocked or full */ } };
 
@@ -332,6 +426,7 @@ let records = (() => {
   // Stored records are re-parsed from their source text, so rule changes (вибух, не застосовувалась) apply retroactively.
   try {
     return JSON.parse(lsGet(STORE) || '[]').map(r => {
+      if (r.manual) return r;
       const lines = (r.key || '').split('\n');
       return parseMessage({ date: r.date, time: r.time, lines }, false) || (isExplosion(lines) ? null : r);
     }).filter(Boolean);
@@ -340,6 +435,11 @@ let records = (() => {
 
 // Non-report chat messages are kept so the keyword filter can be changed without reloading the chat.
 let chatMsgs = (() => { try { return JSON.parse(lsGet(MSGS) || '[]'); } catch { return []; } })();
+
+// Rejected report attempts: kept until cleared, so nothing disappears silently.
+let bad = (() => { try { return JSON.parse(lsGet(BAD) || '[]'); } catch { return []; } })();
+// Originals already sent to the report: reloading the same chat must not bring them back.
+const done = (() => { try { return new Set(JSON.parse(lsGet(DONE) || '[]')); } catch { return new Set(); } })();
 
 function readKw() {
   return { day: $('kd').value.replace(/-/g, ''), from: normTime($('kf').value), to: normTime($('kt').value), words: parseWords($('kw').value) };
@@ -361,17 +461,103 @@ function render() {
   $('out').replaceChildren(...[...buildReport(vis), ...keywordParagraphs(picked, kw)].map(({ t, b }) => {
     const p = document.createElement('p'); p.textContent = t; if (b) p.className = 'b'; return p;
   }));
+  renderBad();
   $('kwHint').textContent = !kw.words.length ? 'Фільтр не діє: додайте хоча б одне слово.'
     : !kwActive(kw) ? 'Фільтр не діє: вкажіть дату та період «від» і «до».'
     : !chatMsgs.length ? 'Немає збережених повідомлень чату: завантажте чат WhatsApp.'
     : `Знайдено: ${picked.length} (збережено повідомлень чату: ${chatMsgs.length}). Вони додаються в кінець звіту.`;
 }
 
+const badKey = b => `${b.date}|${b.time}|${b.orig ?? b.text}`;
+const saveBad = () => lsSet(BAD, JSON.stringify(bad));
+const placeKey = at => sortKey({ date: at.date, time: at.time || '00.00' });
+
+function addBad(list) {
+  const seen = new Set([...bad.map(badKey), ...done]);
+  let added = 0;
+  for (const b of list) {
+    const e = { ...b, orig: b.text };
+    if (!seen.has(badKey(e))) { seen.add(badKey(e)); bad.push(e); added++; }
+  }
+  saveBad(); render();
+  return added;
+}
+
+/** Same date and time window as the report, in chronological order (the target filter does not apply: the number may be unreadable). */
+function visibleBad() {
+  const f = readFilter();
+  return bad.map(b => ({ b, at: guessPlace(b, b.text) }))
+    .filter(({ at }) => matches({ date: at.date, time: at.time || '00.00', target: 0 },
+      { ...f, targets: new Set(), from: at.time ? f.from : '', to: at.time ? f.to : '' }))
+    .sort((x, y) => placeKey(x.at).localeCompare(placeKey(y.at))).map(x => x.b);
+}
+
+function mkBtn(label, cls, onclick) {
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = cls; btn.textContent = label; btn.onclick = onclick;
+  return btn;
+}
+
+function badCard(b) {
+  const card = document.createElement('div'), head = document.createElement('p'), why = document.createElement('p');
+  const ta = document.createElement('textarea'), row = document.createElement('div');
+  card.className = 'bad-item'; head.className = 'b'; why.className = 'why'; row.className = 'row';
+  head.textContent = [b.date, b.time, b.source].filter(Boolean).join(' · ');
+  const showWhy = () => {
+    const w = checkBad(b);
+    why.textContent = w.length ? `Причина: ${w.join('; ')}` : 'Розпізнається: можна додати в звіт.';
+  };
+  ta.value = b.text;
+  ta.oninput = () => { b.text = ta.value; saveBad(); showWhy(); };
+  showWhy();
+  row.append(mkBtn('Додати в звіт', '', () => sendToReport(b, false)), mkBtn('Додати як є', 'sec', () => sendToReport(b, true)));
+  card.append(head, why, ta, row);
+  return card;
+}
+
+function renderBad() {
+  const vis = visibleBad();
+  $('badCount').textContent = `(${vis.length} із ${bad.length})`;
+  const msg = text => { const p = document.createElement('p'); p.textContent = text; return p; };
+  const clear = mkBtn(`Очистити весь список (${bad.length})`, 'sec', () => {
+    if (confirm('Очистити весь список нерозпізнаних?')) { bad = []; saveBad(); render(); }
+  });
+  $('bad').replaceChildren(...(!bad.length ? [msg('Нерозпізнаних повідомлень немає.')]
+    : !vis.length ? [msg(`За датою й часом фільтра нерозпізнаних немає (у списку всього: ${bad.length}).`), clear]
+    : [...vis.map(badCard), clear]));
+}
+
+function setTab(name) {
+  $('out').hidden = name !== 'rep';
+  $('bad').hidden = name !== 'bad';
+  for (const [id, key] of [['tabRep', 'rep'], ['tabBad', 'bad']]) {
+    $(id).classList.toggle('on', key === name);
+    $(id).setAttribute('aria-selected', String(key === name));
+  }
+}
+$('tabRep').onclick = () => setTab('rep');
+$('tabBad').onclick = () => setTab('bad');
+
 function addRecords(list) {
   let added = 0;
   for (const r of list) if (r && !records.some(x => x.key === r.key)) { records.push(r); added++; }
   lsSet(STORE, JSON.stringify(records)); render();
   return added;
+}
+
+/** Sends the (edited) message to the report; the record lands in date+time order inside its target group. */
+function sendToReport(b, asIs) {
+  if (isExplosion(b.text.split('\n'))) return status('Результат «вибух»: у звіт не входить.');
+  const why = checkBad(b);
+  if (why.length && !asIs) return status(`Ще не розпізнається: ${why.join('; ')}. Виправте текст або натисніть «Додати як є».`);
+  const { r, mode } = toRecord(b, asIs);
+  bad = bad.filter(x => x !== b); saveBad();
+  done.add(badKey(b)); lsSet(DONE, JSON.stringify([...done]));
+  const added = addRecords([r]);
+  const how = { parsed: 'запис розібрано', fixed: 'виправлено типову помилку, запис розібрано',
+    asis: `текст додано як є: ціль ${r.target || 'б/н'}, ${r.date} ${r.time === '99.99' ? 'час не знайдено, запис унизу групи' : r.time.replace('.', ':')}` }[mode];
+  status((added ? `Додано у звіт (${how}).` : 'Такий запис у звіті вже є, зі списку прибрано.')
+    + (matches(r, readFilter()) ? '' : ' Він не підпадає під поточний фільтр: натисніть «Скинути фільтр».'));
 }
 
 function addMessages(list) {
@@ -400,7 +586,15 @@ $('add').onclick = () => {
   while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
   if (isExplosion(lines)) return status('Пропущено: результат «вибух» у звіт не входить.');
   const r = parseMessage({ date: today(), time: '', lines }, false);
-  if (!r) return status('Не розпізнано: потрібні «Час:» та «Опис:» або рядки «Ціль N» і опис.');
+  if (!r) {
+    const text = lines.join('\n').trim();
+    if (!text) return status('Нічого вставити.');
+    const reasons = explainReject(lines, false);
+    addBad([{ date: today(), time: '', source: 'вставка', text, reasons }]);
+    const shown = visibleBad().some(x => x.orig === text);
+    return status(`Не розпізнано (додано у вкладку «Нерозпізнані»): ${reasons.join('; ')}.`
+      + (shown ? '' : ' У списку його не видно через фільтр дати й часу: натисніть «Скинути фільтр».'));
+  }
   const added = addRecords([r]);
   status(!added ? 'Такий запис уже є.' : matches(r, readFilter()) ? 'Запис додано.'
     : 'Запис додано, але він не підпадає під поточний фільтр. Натисніть «Скинути фільтр».');
@@ -411,13 +605,16 @@ $('pick').onclick = async () => {
   const f = $('file').files[0];
   if (!f) return status('Оберіть файл чату.');
   const msgs = readChat(await f.text());
-  const found = [], others = [];
+  const found = [], others = [], rejected = [];
   for (const m of msgs) {
     const r = parseMessage(m, true);
     if (r) found.push(r);
     else if (!isExplosion(m.lines)) {
-      const text = m.lines.map(l => l.replace(/\s+$/, '')).join('\n').trim();
-      if (text) others.push({ date: m.date, time: m.time, text });
+      const lines = m.lines.map(l => l.replace(/\s+$/, ''));
+      const text = lines.join('\n').trim();
+      if (!text) continue;
+      others.push({ date: m.date, time: m.time, text });
+      if (looksLikeReport(lines)) rejected.push({ date: m.date, time: m.time, source: 'чат', text, reasons: explainReject(lines, true) });
     }
   }
   const skipped = msgs.filter(m => isExplosion(m.lines)).length;
@@ -426,8 +623,8 @@ $('pick').onclick = async () => {
     const [d, m, y] = found.reduce((a, r) => (sortKey(r) > sortKey(a) ? r : a)).date.split('.');
     $('day').value = `${y}-${m}-${d}`;
   }
-  const addedMsgs = addMessages(others);
-  status(`Повідомлень у чаті: ${msgs.length}. Звітів знайдено: ${found.length}. Нових додано: ${addRecords(found)}. Пропущено «вибух»: ${skipped}. Інших повідомлень збережено: ${addedMsgs}.`);
+  const addedMsgs = addMessages(others), addedBad = addBad(rejected);
+  status(`Повідомлень у чаті: ${msgs.length}. Звітів знайдено: ${found.length}. Нових додано: ${addRecords(found)}. Пропущено «вибух»: ${skipped}. Інших повідомлень збережено: ${addedMsgs}. Нерозпізнаних додано: ${addedBad}.`);
 };
 
 for (const id of ['day', 'from', 'to', 'targets']) $(id).addEventListener('input', render);
@@ -447,7 +644,7 @@ $('docx').onclick = () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 };
 
-$('clear').onclick = () => { if (confirm('Очистити весь звіт?')) { records = []; chatMsgs = []; lsSet(STORE, '[]'); lsSet(MSGS, '[]'); render(); } };
+$('clear').onclick = () => { if (confirm('Очистити весь звіт?')) { records = []; chatMsgs = []; bad = []; done.clear(); lsSet(STORE, '[]'); lsSet(MSGS, '[]'); lsSet(BAD, '[]'); lsSet(DONE, '[]'); render(); } };
 
 $('test').onclick = () => {
   const res = [], ok = (n, c) => res.push(`${c ? '✓' : '✗'} ${n}`), e = { date: '', time: '' };
@@ -478,6 +675,31 @@ $('test').onclick = () => {
   ok('keywords: no date/period -> no filter', !pickMessages(M, { ...kf, day: '' }).length && !pickMessages(M, { ...kf, to: '' }).length && !pickMessages(M, { ...kf, from: '' }).length);
   const kp = keywordParagraphs(got, kf);
   ok('keywords: appended block format', kp[0].b && kp[2].t === '23.10 Увага!' && kp[3].t.startsWith('Заборона') && kp.some(p => p.t === '14.05 01.00 заборона роботи ЗРК'));
+  const w3 = explainReject(['Результат: знищено', 'Н.П.: Х'], true);
+  ok('unrecognized: labeled lists time, опис and target', w3.length === 3 && w3[0].includes('часу') && w3[1].includes('опису') && w3[2].includes('цілі'));
+  ok('unrecognized: chat message without "Ціль N"', explainReject(['13.05.2026 04:01', 'текст'], true)[0].includes('номера цілі'));
+  ok('unrecognized: legacy without description', explainReject(['28.09.2026 06:22', 'Ціль 5'], true).some(x => x.includes('опису')));
+  ok('unrecognized: ordinary chat is not a report attempt', !looksLikeReport(['Штиль']) && looksLikeReport(['Результат: знищено']) && looksLikeReport(['Ціль 5']));
+  ok('unrecognized: «Ціль: N» and one-digit day are named', explainReject(['04.10.2026', 'Ціль: 8116', 'опис'], true)[0].includes('двокрапки')
+    && explainReject(['5.10.2026 час 21:58', 'Ціль 8069', 'опис'], true)[0].includes('без нуля'));
+  ok('unrecognized: corridor notice with «Висота:» is not a report', !looksLikeReport(['Коридор 3', 'Висота: 300', 'з 10:00 до 12:00']));
+  const fix = toRecord({ date: '', time: '', source: 'чат', text: '5.10.2026 час 21:58\nЦіль: 8069\nМВГ 29, далеко\nПричина незастосування: Далеко' });
+  ok('add to report: typos repaired, parsed normally', fix.mode === 'fixed' && fix.r.target === 8069 && fix.r.date === '05.10.2026' && fix.r.time === '21.58');
+  const man = toRecord({ date: '28.06.2026', time: '06.45', source: 'чат', text: '27.06.2026 час 05:04 МВГ П-50 № цілі: 9506 А-280' }).r;
+  ok('add to report: unreadable text kept as-is with guessed placement', man.manual && man.target === 9506 && man.date === '27.06.2026' && man.time === '05.04' && man.body.length === 1);
+  ok('add to report: sorted by date+time inside the target group', (() => {
+    const mk = (d, t) => ({ kind: 'full', target: 5, date: d, time: t, body: [`${d} ${t}`] });
+    const P = buildReport([mk('14.05.2026', '00.10'), mk('13.05.2026', '23.50')]).map(x => x.t);
+    return P.indexOf('13.05.2026 23.50') < P.indexOf('14.05.2026 00.10');
+  })());
+  const edited = { date: '', time: '', source: 'чат', text: '05.10.2026 час 21:58\nЦіль 8069\nМВГ 29, далеко\nПричина незастосування: Далеко' };
+  ok('edit: corrected text parses, no reasons left', toRecord(edited).mode === 'parsed' && !checkBad(edited).length);
+  ok('edit: still broken text keeps reasons', checkBad({ ...edited, text: 'Ціль 8069' }).length > 0);
+  const gp = guessPlace({ date: '28.06.2026', time: '06.45' }, '27.06.2026 час 05:04 текст');
+  ok('date filter: place taken from the text, else from the chat', gp.date === '27.06.2026' && gp.time === '05.04'
+    && guessPlace({ date: '28.06.2026', time: '' }, 'без часу').time === '');
+  ok('date filter: same day window as the report', matches({ date: gp.date, time: gp.time, target: 0 }, { day: '20260627', from: '', to: '', targets: new Set() })
+    && !matches({ date: '28.06.2026', time: '05.04', target: 0 }, { day: '20260627', from: '', to: '', targets: new Set() }));
   status(res.join('   '));
 };
 
