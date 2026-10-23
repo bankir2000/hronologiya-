@@ -84,8 +84,9 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 <p id="status" role="status"></p>
 <section><div class="tabs" role="tablist">
 <button id="tabRep" class="tab on" type="button" role="tab" aria-selected="true">Звіт <span id="count"></span></button>
-<button id="tabBad" class="tab" type="button" role="tab" aria-selected="false">Нерозпізнані <span id="badCount"></span></button></div>
-<div id="out"></div><div id="bad" hidden></div>
+<button id="tabBad" class="tab" type="button" role="tab" aria-selected="false">Нерозпізнані <span id="badCount"></span></button>
+<button id="tabNd" class="tab" type="button" role="tab" aria-selected="false">Не виявлено <span id="ndCount"></span></button></div>
+<div id="out"></div><div id="bad" hidden></div><div id="nd" hidden></div>
 <div class="bar"><button id="docx" type="button">Завантажити .docx</button>
 <button id="clear" class="sec" type="button">Очистити</button>
 <button id="test" class="sec" type="button">Самотест</button></div></section>
@@ -192,13 +193,17 @@ const isExplosion = lines => /^вибух/i.test(lineValue(lines, 'Резуль�
 
 function parseMessage(msg, strict) {
   const lines = msg.lines.map(l => l.replace(/\s+$/, ''));
-  if (isExplosion(lines)) return null;
+  if (isExplosion(lines) || isNotDetected(lines)) return null;
   const text = lines.join('\n');
   const r = /^не\s*застосов/i.test(lineValue(lines, 'Результат:')) ? parseFull(lines, msg)
     : text.includes('Результат:') ? parseLabeled(lines, msg) : parseLegacy(lines, msg, strict);
   if (r) r.key = text.trim();
   return r;
 }
+
+// "Візуально та акустично не виявлено" among the reasons: such reports skip the report and go to the «Не виявлено» tab.
+const NOT_DETECTED = /візуально\s+та\s+акустично\s+не\s+виявлен/i;
+const isNotDetected = lines => NOT_DETECTED.test(lines.join(' '));
 
 // Only labels specific to a target report: daily status messages also use Підрозділ/Позивний/Н.П./Зброя.
 const REPORT_LABEL = /^(?:№ цілі|Результат|Опис|Причина незнищення):/;
@@ -279,6 +284,7 @@ function toRecord(b, asIs = false) {
 function checkBad(b) {
   const lines = repairLines(b.text.split('\n')), strict = b.source === 'чат';
   if (isExplosion(lines)) return ['результат «вибух»: такі повідомлення у звіт не входять'];
+  if (isNotDetected(lines)) return ['«Візуально та акустично не виявлено»: у звіт не входить, піде у вкладку «Не виявлено»'];
   return parseMessage({ date: b.date, time: b.time, lines }, strict) ? [] : explainReject(lines, strict);
 }
 
@@ -418,7 +424,7 @@ function buildDocx(paras) {
   ]);
 }
 
-const STORE = 'chronology.v2', THEME = 'chronology.theme', MSGS = 'chronology.msgs.v1', WORDS = 'chronology.words', BAD = 'chronology.bad.v1', DONE = 'chronology.baddone.v1';
+const STORE = 'chronology.v2', THEME = 'chronology.theme', MSGS = 'chronology.msgs.v1', WORDS = 'chronology.words', BAD = 'chronology.bad.v1', DONE = 'chronology.baddone.v1', NDET = 'chronology.ndet.v1';
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); return true; } catch { return false; /* storage may be blocked or full */ } };
 
@@ -426,12 +432,27 @@ const lsSet = (k, v) => { try { localStorage.setItem(k, v); return true; } catch
 const $ = id => document.getElementById(id);
 const status = t => { $('status').textContent = t; };
 const today = () => { const d = new Date(); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`; };
+let ndet = (() => { try { return JSON.parse(lsGet(NDET) || '[]'); } catch { return []; } })();
+const ndKey = n => `${n.date}|${n.time}|${n.text}`;
+
+/** Adds messages to the «Не виявлено» list, skipping duplicates. Returns how many were new. */
+function addNd(list) {
+  const seen = new Set(ndet.map(ndKey));
+  let added = 0;
+  for (const n of list) if (!seen.has(ndKey(n))) { seen.add(ndKey(n)); ndet.push(n); added++; }
+  if (added) lsSet(NDET, JSON.stringify(ndet));
+  return added;
+}
+
+// Records stored before this rule existed are moved out of the report on load.
+const moved = [];
 let records = (() => {
   // Stored records are re-parsed from their source text, so rule changes (вибух, не застосовувалась) apply retroactively.
   try {
     return JSON.parse(lsGet(STORE) || '[]').map(r => {
-      if (r.manual) return r;
       const lines = (r.key || '').split('\n');
+      if (isNotDetected(lines)) { moved.push({ date: r.date, time: r.time === '99.99' ? '' : r.time, source: 'звіт', text: (r.key || '').trim() }); return null; }
+      if (r.manual) return r;
       return parseMessage({ date: r.date, time: r.time, lines }, false) || (isExplosion(lines) ? null : r);
     }).filter(Boolean);
   } catch { return []; }
@@ -444,6 +465,15 @@ let chatMsgs = (() => { try { return JSON.parse(lsGet(MSGS) || '[]'); } catch { 
 let bad = (() => { try { return JSON.parse(lsGet(BAD) || '[]'); } catch { return []; } })();
 // Originals already sent to the report: reloading the same chat must not bring them back.
 const done = (() => { try { return new Set(JSON.parse(lsGet(DONE) || '[]')); } catch { return new Set(); } })();
+{
+  const keep = [];
+  for (const b of bad) {
+    if (isNotDetected(b.text.split('\n'))) moved.push({ date: b.date, time: b.time, source: b.source, text: b.text.trim() }); else keep.push(b);
+  }
+  if (keep.length !== bad.length) { bad = keep; lsSet(BAD, JSON.stringify(bad)); }
+  if (moved.length) lsSet(STORE, JSON.stringify(records));
+  addNd(moved);
+}
 
 function readKw() {
   return { day: $('kd').value.replace(/-/g, ''), from: normTime($('kf').value), to: normTime($('kt').value), words: parseWords($('kw').value) };
@@ -466,6 +496,7 @@ function render() {
     const p = document.createElement('p'); p.textContent = t; if (b) p.className = 'b'; return p;
   }));
   renderBad();
+  renderNd();
   $('kwHint').textContent = !kw.words.length ? 'Фільтр не діє: додайте хоча б одне слово.'
     : !kwActive(kw) ? 'Фільтр не діє: вкажіть дату та період «від» і «до».'
     : !chatMsgs.length ? 'Немає збережених повідомлень чату: завантажте чат WhatsApp.'
@@ -531,16 +562,48 @@ function renderBad() {
     : [...vis.map(badCard), clear]));
 }
 
+/** «Не виявлено» messages inside the same date and time window as the report (the target filter does not apply). */
+function visibleNd() {
+  const f = readFilter();
+  return ndet.map(n => ({ n, at: guessPlace(n, n.text) }))
+    .filter(({ at }) => matches({ date: at.date, time: at.time || '00.00', target: 0 },
+      { ...f, targets: new Set(), from: at.time ? f.from : '', to: at.time ? f.to : '' }))
+    .sort((x, y) => placeKey(x.at).localeCompare(placeKey(y.at))).map(x => x.n);
+}
+
+function ndCard(n) {
+  const card = document.createElement('div'), head = document.createElement('p'), body = document.createElement('p');
+  card.className = 'bad-item'; head.className = 'b'; body.style.whiteSpace = 'pre-wrap';
+  head.textContent = [n.date, n.time, n.source].filter(Boolean).join(' · ');
+  body.textContent = n.text;
+  card.append(head, body);
+  return card;
+}
+
+function renderNd() {
+  const vis = visibleNd();
+  $('ndCount').textContent = `(${vis.length} із ${ndet.length})`;
+  const msg = text => { const p = document.createElement('p'); p.textContent = text; return p; };
+  const clear = mkBtn(`Очистити список (${ndet.length})`, 'sec', () => {
+    if (confirm('Очистити список «Не виявлено»?')) { ndet = []; lsSet(NDET, '[]'); render(); }
+  });
+  $('nd').replaceChildren(...(!ndet.length ? [msg('Повідомлень «Візуально та акустично не виявлено» немає.')]
+    : !vis.length ? [msg(`За датою й часом фільтра таких повідомлень немає (у списку всього: ${ndet.length}).`), clear]
+    : [...vis.map(ndCard), clear]));
+}
+
 function setTab(name) {
   $('out').hidden = name !== 'rep';
   $('bad').hidden = name !== 'bad';
-  for (const [id, key] of [['tabRep', 'rep'], ['tabBad', 'bad']]) {
+  $('nd').hidden = name !== 'nd';
+  for (const [id, key] of [['tabRep', 'rep'], ['tabBad', 'bad'], ['tabNd', 'nd']]) {
     $(id).classList.toggle('on', key === name);
     $(id).setAttribute('aria-selected', String(key === name));
   }
 }
 $('tabRep').onclick = () => setTab('rep');
 $('tabBad').onclick = () => setTab('bad');
+$('tabNd').onclick = () => setTab('nd');
 
 function addRecords(list) {
   let added = 0;
@@ -552,6 +615,11 @@ function addRecords(list) {
 /** Sends the (edited) message to the report; the record lands in date+time order inside its target group. */
 function sendToReport(b, asIs) {
   if (isExplosion(b.text.split('\n'))) return status('Результат «вибух»: у звіт не входить.');
+  if (isNotDetected(b.text.split('\n'))) {
+    bad = bad.filter(x => x !== b); saveBad();
+    addNd([{ date: b.date, time: b.time, source: b.source, text: b.text.trim() }]); render();
+    return status('Містить «Візуально та акустично не виявлено»: перенесено у вкладку «Не виявлено».');
+  }
   const why = checkBad(b);
   if (why.length && !asIs) return status(`Ще не розпізнається: ${why.join('; ')}. Виправте текст або натисніть «Додати як є».`);
   const { r, mode } = toRecord(b, asIs);
@@ -589,6 +657,10 @@ $('add').onclick = () => {
   const lines = clean($('paste').value).split(/\r?\n/);
   while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
   if (isExplosion(lines)) return status('Пропущено: результат «вибух» у звіт не входить.');
+  if (isNotDetected(lines)) {
+    addNd([{ date: today(), time: '', source: 'вставка', text: lines.join('\n').trim() }]); render();
+    return status('«Візуально та акустично не виявлено»: у звіт не входить, збережено у вкладці «Не виявлено».');
+  }
   const r = parseMessage({ date: today(), time: '', lines }, false);
   if (!r) {
     const text = lines.join('\n').trim();
@@ -609,9 +681,14 @@ $('pick').onclick = async () => {
   const f = $('file').files[0];
   if (!f) return status('Оберіть файл чату.');
   const msgs = readChat(await f.text());
-  const found = [], others = [], rejected = [];
+  const found = [], others = [], rejected = [], ndNew = [];
   for (const m of msgs) {
     const r = parseMessage(m, true);
+    const trimmed = m.lines.map(l => l.replace(/\s+$/, ''));
+    if (!r && !isExplosion(m.lines) && isNotDetected(trimmed) && looksLikeReport(trimmed)) {
+      ndNew.push({ date: m.date, time: m.time, source: 'чат', text: trimmed.join('\n').trim() });
+      continue;
+    }
     if (r) found.push(r);
     else if (!isExplosion(m.lines)) {
       const lines = m.lines.map(l => l.replace(/\s+$/, ''));
@@ -627,8 +704,8 @@ $('pick').onclick = async () => {
     const [d, m, y] = found.reduce((a, r) => (sortKey(r) > sortKey(a) ? r : a)).date.split('.');
     $('day').value = `${y}-${m}-${d}`;
   }
-  const addedMsgs = addMessages(others), addedBad = addBad(rejected);
-  status(`Повідомлень у чаті: ${msgs.length}. Звітів знайдено: ${found.length}. Нових додано: ${addRecords(found)}. Пропущено «вибух»: ${skipped}. Інших повідомлень збережено: ${addedMsgs}. Нерозпізнаних додано: ${addedBad}.`);
+  const addedNd = addNd(ndNew), addedMsgs = addMessages(others), addedBad = addBad(rejected);
+  status(`Повідомлень у чаті: ${msgs.length}. Звітів знайдено: ${found.length}. Нових додано: ${addRecords(found)}. Пропущено «вибух»: ${skipped}. Інших повідомлень збережено: ${addedMsgs}. Нерозпізнаних додано: ${addedBad}. Не виявлено: ${addedNd}.`);
 };
 
 for (const id of ['day', 'from', 'to', 'targets']) $(id).addEventListener('input', render);
@@ -648,7 +725,7 @@ $('docx').onclick = () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 };
 
-$('clear').onclick = () => { if (confirm('Очистити весь звіт?')) { records = []; chatMsgs = []; bad = []; done.clear(); lsSet(STORE, '[]'); lsSet(MSGS, '[]'); lsSet(BAD, '[]'); lsSet(DONE, '[]'); render(); } };
+$('clear').onclick = () => { if (confirm('Очистити весь звіт?')) { records = []; chatMsgs = []; bad = []; ndet = []; lsSet(NDET, '[]'); done.clear(); lsSet(STORE, '[]'); lsSet(MSGS, '[]'); lsSet(BAD, '[]'); lsSet(DONE, '[]'); render(); } };
 
 $('test').onclick = () => {
   const res = [], ok = (n, c) => res.push(`${c ? '✓' : '✗'} ${n}`), e = { date: '', time: '' };
@@ -708,6 +785,12 @@ $('test').onclick = () => {
   const and = readChat('13.05.26, 06:51 - Ім\'я: Ціль 5');
   ok('chat: iPhone and Android formats both read, deleted skipped', ios.length === 1 && ios[0].time === '09.37' && ios[0].date === '22.09.2026' && ios[0].lines[0] === 'Ціль 5'
     && and.length === 1 && and[0].time === '06.51');
+  const nd1 = ['Дата: 13.05.2026', 'Час: 04:01', '№ цілі: 8106', 'Результат: не застосовувалась', 'Причина незастосування: Візуально та акустично не виявлено'];
+  ok('не виявлено: phrase found (case/spaces), message kept out of the report',
+    isNotDetected(nd1) && parseMessage({ date: '', time: '', lines: nd1 }, true) === null
+    && isNotDetected(['причина незастосування: ВІЗУАЛЬНО  та акустично не виявлено']));
+  const other = ['28.09.2026 час 06:22', 'Ціль 9841', 'МВГ 29, далеко', 'Причина незастосування: Далеко'];
+  ok('не виявлено: other reasons stay in the report', !isNotDetected(other) && parseMessage({ date: '', time: '', lines: other }, true) !== null);
   status(res.join('   '));
 };
 
