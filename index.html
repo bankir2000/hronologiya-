@@ -85,8 +85,9 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 <section><div class="tabs" role="tablist">
 <button id="tabRep" class="tab on" type="button" role="tab" aria-selected="true">Звіт <span id="count"></span></button>
 <button id="tabBad" class="tab" type="button" role="tab" aria-selected="false">Нерозпізнані <span id="badCount"></span></button>
-<button id="tabNd" class="tab" type="button" role="tab" aria-selected="false">Не виявлено <span id="ndCount"></span></button></div>
-<div id="out"></div><div id="bad" hidden></div><div id="nd" hidden></div>
+<button id="tabNd" class="tab" type="button" role="tab" aria-selected="false">Не виявлено <span id="ndCount"></span></button>
+<button id="tabOwn" class="tab" type="button" role="tab" aria-selected="false">Свої <span id="ownCount"></span></button></div>
+<div id="out"></div><div id="bad" hidden></div><div id="nd" hidden></div><div id="own" hidden></div>
 <div class="bar"><button id="docx" type="button">Завантажити .docx</button>
 <button id="clear" class="sec" type="button">Очистити</button>
 <button id="test" class="sec" type="button">Самотест</button></div></section>
@@ -193,7 +194,7 @@ const isExplosion = lines => /^вибух/i.test(lineValue(lines, 'Резуль�
 
 function parseMessage(msg, strict) {
   const lines = msg.lines.map(l => l.replace(/\s+$/, ''));
-  if (isExplosion(lines) || isNotDetected(lines)) return null;
+  if (isExplosion(lines) || sideOf(lines)) return null;
   const text = lines.join('\n');
   const r = /^не\s*застосов/i.test(lineValue(lines, 'Результат:')) ? parseFull(lines, msg)
     : text.includes('Результат:') ? parseLabeled(lines, msg) : parseLegacy(lines, msg, strict);
@@ -204,6 +205,12 @@ function parseMessage(msg, strict) {
 // "Візуально та акустично не виявлено" among the reasons: such reports skip the report and go to the «Не виявлено» tab.
 const NOT_DETECTED = /візуально\s+та\s+акустично\s+не\s+виявлен/i;
 const isNotDetected = lines => NOT_DETECTED.test(lines.join(' '));
+
+// Messages with these words skip the report and go to the «Свої» tab (whole words only, so «нашого» does not match «наш»).
+const OWN_WORDS = /(?<!\p{L})(?:свій|свої|наш|наші|гелікоптер|вихід|своєї)(?!\p{L})/iu;
+const isOwn = lines => OWN_WORDS.test(lines.join(' '));
+// Side tab a message belongs to instead of the report: 'own' («Свої»), 'nd' («Не виявлено») or null.
+const sideOf = lines => (isOwn(lines) ? 'own' : isNotDetected(lines) ? 'nd' : null);
 
 // Only labels specific to a target report: daily status messages also use Підрозділ/Позивний/Н.П./Зброя.
 const REPORT_LABEL = /^(?:№ цілі|Результат|Опис|Причина незнищення):/;
@@ -284,6 +291,7 @@ function toRecord(b, asIs = false) {
 function checkBad(b) {
   const lines = repairLines(b.text.split('\n')), strict = b.source === 'чат';
   if (isExplosion(lines)) return ['результат «вибух»: такі повідомлення у звіт не входять'];
+  if (isOwn(lines)) return ['є слова «свій», «наш», «гелікоптер», «вихід» тощо: у звіт не входить, піде у вкладку «Свої»'];
   if (isNotDetected(lines)) return ['«Візуально та акустично не виявлено»: у звіт не входить, піде у вкладку «Не виявлено»'];
   return parseMessage({ date: b.date, time: b.time, lines }, strict) ? [] : explainReject(lines, strict);
 }
@@ -424,7 +432,7 @@ function buildDocx(paras) {
   ]);
 }
 
-const STORE = 'chronology.v2', THEME = 'chronology.theme', MSGS = 'chronology.msgs.v1', WORDS = 'chronology.words', BAD = 'chronology.bad.v1', DONE = 'chronology.baddone.v1', NDET = 'chronology.ndet.v1';
+const STORE = 'chronology.v2', THEME = 'chronology.theme', MSGS = 'chronology.msgs.v1', WORDS = 'chronology.words', BAD = 'chronology.bad.v1', DONE = 'chronology.baddone.v1', NDET = 'chronology.ndet.v1', OWN = 'chronology.own.v1';
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); return true; } catch { return false; /* storage may be blocked or full */ } };
 
@@ -444,6 +452,22 @@ function addNd(list) {
   return added;
 }
 
+// «Свої» list: same rules as «Не виявлено».
+let own = (() => { try { return JSON.parse(lsGet(OWN) || '[]'); } catch { return []; } })();
+const ownKey = n => `${n.date}|${n.time}|${n.text}`;
+function addOwn(list) {
+  const seen = new Set(own.map(ownKey));
+  let added = 0;
+  for (const n of list) if (!seen.has(ownKey(n))) { seen.add(ownKey(n)); own.push(n); added++; }
+  if (added) lsSet(OWN, JSON.stringify(own));
+  return added;
+}
+/** Routes messages to their side tab («Свої» or «Не виявлено»); returns how many were new. */
+const addSide = list => {
+  const plain = m => ({ date: m.date, time: m.time, source: m.source, text: m.text });
+  return addNd(list.filter(m => m.side === 'nd').map(plain)) + addOwn(list.filter(m => m.side === 'own').map(plain));
+};
+
 // Records stored before this rule existed are moved out of the report on load.
 const moved = [];
 let records = (() => {
@@ -451,7 +475,8 @@ let records = (() => {
   try {
     return JSON.parse(lsGet(STORE) || '[]').map(r => {
       const lines = (r.key || '').split('\n');
-      if (isNotDetected(lines)) { moved.push({ date: r.date, time: r.time === '99.99' ? '' : r.time, source: 'звіт', text: (r.key || '').trim() }); return null; }
+      const side = sideOf(lines);
+      if (side) { moved.push({ side, date: r.date, time: r.time === '99.99' ? '' : r.time, source: 'звіт', text: (r.key || '').trim() }); return null; }
       if (r.manual) return r;
       return parseMessage({ date: r.date, time: r.time, lines }, false) || (isExplosion(lines) ? null : r);
     }).filter(Boolean);
@@ -468,11 +493,12 @@ const done = (() => { try { return new Set(JSON.parse(lsGet(DONE) || '[]')); } c
 {
   const keep = [];
   for (const b of bad) {
-    if (isNotDetected(b.text.split('\n'))) moved.push({ date: b.date, time: b.time, source: b.source, text: b.text.trim() }); else keep.push(b);
+    const side = sideOf(b.text.split('\n'));
+    if (side) moved.push({ side, date: b.date, time: b.time, source: b.source, text: b.text.trim() }); else keep.push(b);
   }
   if (keep.length !== bad.length) { bad = keep; lsSet(BAD, JSON.stringify(bad)); }
   if (moved.length) lsSet(STORE, JSON.stringify(records));
-  addNd(moved);
+  addSide(moved);
 }
 
 function readKw() {
@@ -497,6 +523,7 @@ function render() {
   }));
   renderBad();
   renderNd();
+  renderOwn();
   $('kwHint').textContent = !kw.words.length ? 'Фільтр не діє: додайте хоча б одне слово.'
     : !kwActive(kw) ? 'Фільтр не діє: вкажіть дату та період «від» і «до».'
     : !chatMsgs.length ? 'Немає збережених повідомлень чату: завантажте чат WhatsApp.'
@@ -592,11 +619,33 @@ function renderNd() {
     : [...vis.map(ndCard), clear]));
 }
 
+/** «Свої» messages inside the same date and time window as the report. */
+function visibleOwn() {
+  const f = readFilter();
+  return own.map(n => ({ n, at: guessPlace(n, n.text) }))
+    .filter(({ at }) => matches({ date: at.date, time: at.time || '00.00', target: 0 },
+      { ...f, targets: new Set(), from: at.time ? f.from : '', to: at.time ? f.to : '' }))
+    .sort((x, y) => placeKey(x.at).localeCompare(placeKey(y.at))).map(x => x.n);
+}
+
+function renderOwn() {
+  const vis = visibleOwn();
+  $('ownCount').textContent = `(${vis.length} із ${own.length})`;
+  const msg = text => { const p = document.createElement('p'); p.textContent = text; return p; };
+  const clear = mkBtn(`Очистити список (${own.length})`, 'sec', () => {
+    if (confirm('Очистити список «Свої»?')) { own = []; lsSet(OWN, '[]'); render(); }
+  });
+  $('own').replaceChildren(...(!own.length ? [msg('Повідомлень зі словами «свій», «наш», «гелікоптер», «вихід» немає.')]
+    : !vis.length ? [msg(`За датою й часом фільтра таких повідомлень немає (у списку всього: ${own.length}).`), clear]
+    : [...vis.map(ndCard), clear]));
+}
+
 function setTab(name) {
   $('out').hidden = name !== 'rep';
   $('bad').hidden = name !== 'bad';
   $('nd').hidden = name !== 'nd';
-  for (const [id, key] of [['tabRep', 'rep'], ['tabBad', 'bad'], ['tabNd', 'nd']]) {
+  $('own').hidden = name !== 'own';
+  for (const [id, key] of [['tabRep', 'rep'], ['tabBad', 'bad'], ['tabNd', 'nd'], ['tabOwn', 'own']]) {
     $(id).classList.toggle('on', key === name);
     $(id).setAttribute('aria-selected', String(key === name));
   }
@@ -604,6 +653,7 @@ function setTab(name) {
 $('tabRep').onclick = () => setTab('rep');
 $('tabBad').onclick = () => setTab('bad');
 $('tabNd').onclick = () => setTab('nd');
+$('tabOwn').onclick = () => setTab('own');
 
 function addRecords(list) {
   let added = 0;
@@ -615,10 +665,12 @@ function addRecords(list) {
 /** Sends the (edited) message to the report; the record lands in date+time order inside its target group. */
 function sendToReport(b, asIs) {
   if (isExplosion(b.text.split('\n'))) return status('Результат «вибух»: у звіт не входить.');
-  if (isNotDetected(b.text.split('\n'))) {
+  const side = sideOf(b.text.split('\n'));
+  if (side) {
     bad = bad.filter(x => x !== b); saveBad();
-    addNd([{ date: b.date, time: b.time, source: b.source, text: b.text.trim() }]); render();
-    return status('Містить «Візуально та акустично не виявлено»: перенесено у вкладку «Не виявлено».');
+    addSide([{ side, date: b.date, time: b.time, source: b.source, text: b.text.trim() }]); render();
+    return status(side === 'own' ? 'Містить слова зі списку «Свої»: перенесено у вкладку «Свої».'
+      : 'Містить «Візуально та акустично не виявлено»: перенесено у вкладку «Не виявлено».');
   }
   const why = checkBad(b);
   if (why.length && !asIs) return status(`Ще не розпізнається: ${why.join('; ')}. Виправте текст або натисніть «Додати як є».`);
@@ -657,9 +709,11 @@ $('add').onclick = () => {
   const lines = clean($('paste').value).split(/\r?\n/);
   while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
   if (isExplosion(lines)) return status('Пропущено: результат «вибух» у звіт не входить.');
-  if (isNotDetected(lines)) {
-    addNd([{ date: today(), time: '', source: 'вставка', text: lines.join('\n').trim() }]); render();
-    return status('«Візуально та акустично не виявлено»: у звіт не входить, збережено у вкладці «Не виявлено».');
+  const side = sideOf(lines);
+  if (side) {
+    addSide([{ side, date: today(), time: '', source: 'вставка', text: lines.join('\n').trim() }]); render();
+    return status(side === 'own' ? 'Є слова зі списку «Свої»: у звіт не входить, збережено у вкладці «Свої».'
+      : '«Візуально та акустично не виявлено»: у звіт не входить, збережено у вкладці «Не виявлено».');
   }
   const r = parseMessage({ date: today(), time: '', lines }, false);
   if (!r) {
@@ -681,12 +735,13 @@ $('pick').onclick = async () => {
   const f = $('file').files[0];
   if (!f) return status('Оберіть файл чату.');
   const msgs = readChat(await f.text());
-  const found = [], others = [], rejected = [], ndNew = [];
+  const found = [], others = [], rejected = [], sideNew = [];
   for (const m of msgs) {
     const r = parseMessage(m, true);
     const trimmed = m.lines.map(l => l.replace(/\s+$/, ''));
-    if (!r && !isExplosion(m.lines) && isNotDetected(trimmed) && looksLikeReport(trimmed)) {
-      ndNew.push({ date: m.date, time: m.time, source: 'чат', text: trimmed.join('\n').trim() });
+    const side = !r && !isExplosion(m.lines) && looksLikeReport(trimmed) ? sideOf(trimmed) : null;
+    if (side) {
+      sideNew.push({ side, date: m.date, time: m.time, source: 'чат', text: trimmed.join('\n').trim() });
       continue;
     }
     if (r) found.push(r);
@@ -704,8 +759,8 @@ $('pick').onclick = async () => {
     const [d, m, y] = found.reduce((a, r) => (sortKey(r) > sortKey(a) ? r : a)).date.split('.');
     $('day').value = `${y}-${m}-${d}`;
   }
-  const addedNd = addNd(ndNew), addedMsgs = addMessages(others), addedBad = addBad(rejected);
-  status(`Повідомлень у чаті: ${msgs.length}. Звітів знайдено: ${found.length}. Нових додано: ${addRecords(found)}. Пропущено «вибух»: ${skipped}. Інших повідомлень збережено: ${addedMsgs}. Нерозпізнаних додано: ${addedBad}. Не виявлено: ${addedNd}.`);
+  const addedSide = addSide(sideNew), addedMsgs = addMessages(others), addedBad = addBad(rejected);
+  status(`Повідомлень у чаті: ${msgs.length}. Звітів знайдено: ${found.length}. Нових додано: ${addRecords(found)}. Пропущено «вибух»: ${skipped}. Інших повідомлень збережено: ${addedMsgs}. Нерозпізнаних додано: ${addedBad}. Не виявлено та «Свої»: ${addedSide}.`);
 };
 
 for (const id of ['day', 'from', 'to', 'targets']) $(id).addEventListener('input', render);
@@ -725,7 +780,7 @@ $('docx').onclick = () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 };
 
-$('clear').onclick = () => { if (confirm('Очистити весь звіт?')) { records = []; chatMsgs = []; bad = []; ndet = []; lsSet(NDET, '[]'); done.clear(); lsSet(STORE, '[]'); lsSet(MSGS, '[]'); lsSet(BAD, '[]'); lsSet(DONE, '[]'); render(); } };
+$('clear').onclick = () => { if (confirm('Очистити весь звіт?')) { records = []; chatMsgs = []; bad = []; ndet = []; lsSet(NDET, '[]'); own = []; lsSet(OWN, '[]'); done.clear(); lsSet(STORE, '[]'); lsSet(MSGS, '[]'); lsSet(BAD, '[]'); lsSet(DONE, '[]'); render(); } };
 
 $('test').onclick = () => {
   const res = [], ok = (n, c) => res.push(`${c ? '✓' : '✗'} ${n}`), e = { date: '', time: '' };
@@ -791,6 +846,10 @@ $('test').onclick = () => {
     && isNotDetected(['причина незастосування: ВІЗУАЛЬНО  та акустично не виявлено']));
   const other = ['28.09.2026 час 06:22', 'Ціль 9841', 'МВГ 29, далеко', 'Причина незастосування: Далеко'];
   ok('не виявлено: other reasons stay in the report', !isNotDetected(other) && parseMessage({ date: '', time: '', lines: other }, true) !== null);
+  ok('свої: own words are routed to the «Свої» tab, not the report',
+    isOwn(['Дата: 13.05.2026', 'Результат: знищено', 'Опис: наші позиції']) && sideOf(['Гелікоптер над лінією']) === 'own'
+    && isOwn(['Вихід з лісу']) && !isOwn(['нашого району', 'своїх людей', 'Штиль', 'Ціль 5'])
+    && parseMessage({ date: '', time: '', lines: ['28.09.2026 час 06:22', 'Ціль 9841', 'вихід із зони', 'Причина незастосування: Далеко'] }, true) === null);
   status(res.join('   '));
 };
 
