@@ -97,6 +97,7 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 // ===================== core: parsing and chronology =====================
 const T1 = 'Розрахунки через позиції яких відповідно до засобів відображення пролітала ціль та причини не застосування:';
 const T2 = 'Розрахунки, що вели вогонь на ураження цілей (застосування без знищення):';
+const T3 = 'Розрахунки, що вели вогонь на ураження цілей (застосування із знищенням):';
 // Android: "13.05.26, 06:51 - Name: text"; iPhone: "[13.05.26, 06:51:12] Name: text".
 const MSG_START = /^\[?(\d{2}\.\d{2}\.\d{2,4}),?\s+(\d{1,2}:\d{2})(?::\d{2})?(?:\]\s*|\s+-\s+)/;
 // Service lines every export contains: they are not reports and would only clutter the saved messages.
@@ -153,7 +154,7 @@ function parseLabeled(lines, msg) {
   const weapon = v('Зброя:').replace(/^(?:із|з)\s+/i, '').trim();
   const main = `${time} ${call}, ${v('Підрозділ:')}, ${weapon}, ${v('Н.П.:')} ` +
     `(А-${g(/А-(\d+)/i)}, Д-${g(/Д-(\d+)/i)}, К-${g(/К-(\d+)/i)}, Н-${v('Висота:')}). ` +
-    `Результат: ${g(/К-\d+,\s*(\S+)/i) || '-'}. Витрати БК: ${summarizeAmmo(lines)};`;
+    `Результат: ${g(/К-\d+,\s*(\S+)/i) || (isDestroyed(lines) ? 'знищено' : '-')}. Витрати БК: ${summarizeAmmo(lines)};`;
   return {
     kind: 'grouped', target: parseInt(v('№ цілі:'), 10) || 0, isMVG: prefix.toUpperCase() === 'МВГ',
     date: normDate(v('Дата:')) || msg.date, time, main, reason: v('Причина незнищення:'),
@@ -191,6 +192,8 @@ function parseFull(lines, msg) {
 
 // Reports with "Результат: вибух" are deliberately left out of the report.
 const isExplosion = lines => /^вибух/i.test(lineValue(lines, 'Результат:'));
+// "Результат: знищено" (not "не знищено") -> section «із знищенням».
+const isDestroyed = lines => /^знищено/i.test(lineValue(lines, 'Результат:'));
 
 function parseMessage(msg, strict) {
   const lines = msg.lines.map(l => l.replace(/\s+$/, ''));
@@ -198,7 +201,7 @@ function parseMessage(msg, strict) {
   const text = lines.join('\n');
   const r = /^не\s*застосов/i.test(lineValue(lines, 'Результат:')) ? parseFull(lines, msg)
     : text.includes('Результат:') ? parseLabeled(lines, msg) : parseLegacy(lines, msg, strict);
-  if (r) r.key = text.trim();
+  if (r) { r.key = text.trim(); if (r.kind === 'grouped') r.destroyed = isDestroyed(lines); }
   return r;
 }
 
@@ -319,10 +322,12 @@ function buildReport(records) {
       }
     }
   };
-  section(T2, sorted.filter(r => r.kind === 'grouped'), (k, g) => {
+  const applied = (k, g) => {
     const n = g.filter(r => r.isMVG).length;
     return `Ціль ${k || 'б/н'} - ${g.length} застосувань (МВГ-${n}, ВГ-${g.length - n}):`;
-  });
+  };
+  section(T3, sorted.filter(r => r.kind === 'grouped' && r.destroyed), applied);
+  section(T2, sorted.filter(r => r.kind === 'grouped' && !r.destroyed), applied);
   section(T1, sorted.filter(r => r.kind !== 'grouped'), k => `Ціль ${k || 'б/н'}:`);
   return P;
 }
@@ -811,6 +816,10 @@ $('test').onclick = () => {
   ok('keywords: no date/period -> no filter', !pickMessages(M, { ...kf, day: '' }).length && !pickMessages(M, { ...kf, to: '' }).length && !pickMessages(M, { ...kf, from: '' }).length);
   const kp = keywordParagraphs(got, kf);
   ok('keywords: appended block format', kp[0].b && kp[2].t === '23.10 Увага!' && kp[3].t.startsWith('Заборона') && kp.some(p => p.t === '14.05 01.00 заборона роботи ЗРК'));
+  const dz = s.map(l => l.replace('вибух', 'знищено')), dn = s.map(l => l.replace('вибух', 'не знищено'));
+  const dP = buildReport([parseMessage({ date: '', time: '', lines: dz }, true), parseMessage({ date: '', time: '', lines: dn }, true)]).map(x => x.t);
+  ok('знищено: own section before «без знищення», «не знищено» stays in the old one',
+    dP.indexOf(T3) === 0 && dP.indexOf(T2) > dP.indexOf(T3) && isDestroyed(dz) && !isDestroyed(dn));
   const w3 = explainReject(['Результат: знищено', 'Н.П.: Х'], true);
   ok('unrecognized: labeled lists time, опис and target', w3.length === 3 && w3[0].includes('часу') && w3[1].includes('опису') && w3[2].includes('цілі'));
   ok('unrecognized: chat message without "Ціль N"', explainReject(['13.05.2026 04:01', 'текст'], true)[0].includes('номера цілі'));
