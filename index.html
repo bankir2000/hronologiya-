@@ -56,7 +56,7 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 <button id="add" type="button">Додати</button></section>
 
 <section><h2>Ввід: чат WhatsApp</h2>
-<input type="file" id="file" accept=".txt">
+<input type="file" id="file" accept=".txt,.zip,text/plain,application/zip,application/x-zip-compressed">
 <button id="pick" type="button" style="margin-top:8px">Завантажити з чату</button></section>
 
 <section><h2>Фільтр</h2>
@@ -397,6 +397,44 @@ function readChat(text) {
     } else if (msgs.length) msgs[msgs.length - 1].lines.push(raw);
   }
   return msgs.filter(x => !x.system && !NOISE.test(x.lines.join(' ').trim()));
+}
+
+/** Raw-deflate decompression via the browser's built-in DecompressionStream (no external libraries). */
+async function inflateRaw(bytes) {
+  if (typeof DecompressionStream === 'undefined') throw new Error('цей браузер не вміє розпаковувати zip: оновіть браузер або розпакуйте файл вручну');
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/** Reads every .txt entry of a .zip (WhatsApp «Експорт чату» with media is a zip holding _chat.txt) and joins them by name. */
+async function readZipText(buf) {
+  const u = new Uint8Array(buf), dv = new DataView(buf), dec = new TextDecoder('utf-8');
+  let end = -1;
+  for (let i = u.length - 22; i >= Math.max(0, u.length - 22 - 65535); i--) if (dv.getUint32(i, true) === 0x06054b50) { end = i; break; }
+  if (end < 0) throw new Error('файл не схожий на zip-архів');
+  const count = dv.getUint16(end + 10, true);
+  let p = dv.getUint32(end + 16, true);
+  const found = [];
+  for (let n = 0; n < count; n++) {
+    if (p + 46 > u.length || dv.getUint32(p, true) !== 0x02014b50) throw new Error('zip-архів пошкоджено');
+    const flags = dv.getUint16(p + 8, true), method = dv.getUint16(p + 10, true), size = dv.getUint32(p + 20, true);
+    const nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), at = dv.getUint32(p + 42, true);
+    const name = dec.decode(u.subarray(p + 46, p + 46 + nl));
+    p += 46 + nl + el + cl;
+    if (!/\.txt$/i.test(name) || /(?:^|\/)(?:__MACOSX\/|\._)/.test(name)) continue;
+    if (flags & 1) throw new Error('zip-архів захищено паролем');
+    const start = at + 30 + dv.getUint16(at + 26, true) + dv.getUint16(at + 28, true), data = u.subarray(start, start + size);
+    if (method !== 0 && method !== 8) throw new Error('непідтримуваний спосіб стиснення в zip');
+    found.push([name, dec.decode(method === 0 ? data : await inflateRaw(data))]);
+  }
+  if (!found.length) throw new Error('у zip-архіві немає .txt файлу');
+  return found.sort((a, b) => a[0].localeCompare(b[0])).map(x => x[1]).join('\n');
+}
+
+/** Text of a chosen file: .txt as-is, .zip unpacked (detected by the «PK» signature, not by the name). */
+async function fileText(f) {
+  const buf = await f.arrayBuffer(), b = new Uint8Array(buf, 0, 2);
+  return b[0] === 0x50 && b[1] === 0x4B ? readZipText(buf) : new TextDecoder('utf-8').decode(buf);
 }
 
 // Minimal "stored" ZIP writer: a real .docx without external libraries, so it works offline.
@@ -786,8 +824,10 @@ $('add').onclick = () => {
 
 $('pick').onclick = async () => {
   const f = $('file').files[0];
-  if (!f) return status('Оберіть файл чату.');
-  const msgs = readChat(await f.text());
+  if (!f) return status('Оберіть файл чату (.txt або .zip).');
+  let text;
+  try { text = await fileText(f); } catch (err) { return status(`Не вдалося прочитати файл: ${err.message}.`); }
+  const msgs = readChat(text);
   const found = [], others = [], rejected = [], sideNew = [];
   for (const m of msgs) {
     const r = parseMessage(m, true);
@@ -834,7 +874,7 @@ $('docx').onclick = () => {
 
 $('clear').onclick = () => { if (confirm('Очистити весь звіт?')) { records = []; chatMsgs = []; bad = []; ndet = []; lsSet(NDET, '[]'); own = []; lsSet(OWN, '[]'); expl = []; lsSet(EXP, '[]'); done.clear(); lsSet(STORE, '[]'); lsSet(MSGS, '[]'); lsSet(BAD, '[]'); lsSet(DONE, '[]'); render(); } };
 
-$('test').onclick = () => {
+$('test').onclick = async () => {
   const res = [], ok = (n, c) => res.push(`${c ? '✓' : '✗'} ${n}`), e = { date: '', time: '' };
   const s = ['Дата: 13.05.2026', 'Час: 04:01', '№ цілі: 8106', 'Результат: вибух', 'Н.П.: ВІНТЕНЦІ', 'Підрозділ: 13 озкб',
     'Позивний: МВГ П 27', 'Зброя: із ЗКУ Viktor MR-2 14.5', 'Висота: 1500', 'Опис: А-35, Д-3000, К-220, обстріляно 1 БПЛА',
@@ -918,6 +958,16 @@ $('test').onclick = () => {
     hasEmptyResult(em) && parseMessage({ date: '', time: '', lines: em }, true) === null
     && explainReject(em, true)[0].startsWith('не вказано результат')
     && !hasEmptyResult(emFixed) && parseMessage({ date: '', time: '', lines: emFixed }, true) !== null);
+  try {
+    const chat = '13.05.26, 06:51 - Ім\'я: Ціль 5\nпродовження';
+    const z = await readZipText(await zip([['__MACOSX/._chat.txt', 'x'], ['_chat.txt', chat], ['img.jpg', 'x']]).arrayBuffer());
+    ok('zip: .txt read from archive (stored), junk entries skipped', z === chat);
+    if (typeof CompressionStream !== 'undefined') {
+      const raw = new TextEncoder().encode(chat), cs = new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+      const def = new Uint8Array(await new Response(cs).arrayBuffer());
+      ok('zip: deflate entry unpacked', new TextDecoder().decode(await inflateRaw(def)) === chat);
+    }
+  } catch (err) { ok(`zip: ${err.message}`, false); }
   status(res.join('   '));
 };
 
