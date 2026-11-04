@@ -138,6 +138,21 @@ function summarizeAmmo(lines) {
   return [...sums].map(([c, q]) => `${c} – ${q} шт.`).join(', ');
 }
 
+// Lines that end a multi-line «Коментар:» block: other labels of the SMS and the ammo lines.
+const COMMENT_END = /^(?:Дата|Час|№ цілі|Результат|Н\.П\.|Обл\.|Підрозділ|Позивний|Зброя|Висота|Опис|Причина незнищення)\s*:|^(?:Набій|Снаряд|Розхід)\s/i;
+const REASON_IN_COMMENT = /Причина\s+не\s*знищення\s*:\s*([\s\S]*)$/i;
+/** Reason of non-destruction: own line (old SMS) or the tail of the «Коментар:» block after "Причина незнищення:" (new SMS). */
+function reasonOf(lines) {
+  const own = lineValue(lines, 'Причина незнищення:');
+  if (own) return own;
+  const i = lines.findIndex(l => /^\s*Коментар\s*:/i.test(l));
+  if (i < 0) return '';
+  const block = [lines[i].trim().replace(/^Коментар\s*:\s*/i, '')];
+  for (const l of lines.slice(i + 1)) { if (COMMENT_END.test(l.trim())) break; block.push(l.trim()); }
+  const m = REASON_IN_COMMENT.exec(block.join(' '));
+  return m ? m[1].replace(/\s+/g, ' ').trim() : '';
+}
+
 /** Labeled format ("Час:/Опис:/…") -> grouped record (section 2). Null if time or description is missing. */
 function parseLabeled(lines, msg) {
   const v = l => lineValue(lines, l);
@@ -158,7 +173,7 @@ function parseLabeled(lines, msg) {
     `Результат: ${g(/К-\d+,\s*(\S+)/i) || (isDestroyed(lines) ? 'знищено' : '-')}. Витрати БК: ${summarizeAmmo(lines)};`;
   return {
     kind: 'grouped', target: parseInt(v('№ цілі:'), 10) || 0, isMVG: prefix.toUpperCase() === 'МВГ',
-    date: normDate(v('Дата:')) || msg.date, time, main, reason: v('Причина незнищення:'),
+    date: normDate(v('Дата:')) || msg.date, time, main, reason: reasonOf(lines),
   };
 }
 
@@ -935,12 +950,15 @@ $('pick').onclick = async () => {
 };
 
 $('file').addEventListener('change', () => { if ($('file').files[0]) $('pick').click(); });
-for (const id of ['day', 'from', 'to', 'targets']) $(id).addEventListener('input', render);
+// The keyword block (date and period) follows the main filter; it can still be corrected by hand until the main filter changes again.
+const syncKw = () => { for (const [m, k] of [['day', 'kd'], ['from', 'kf'], ['to', 'kt']]) $(k).value = $(m).value; };
+$('targets').addEventListener('input', render);
+for (const id of ['day', 'from', 'to']) $(id).addEventListener('input', () => { syncKw(); if (id === 'day') status(''); render(); });
 $('kw').value = lsGet(WORDS) ?? DEFAULT_WORDS;
 for (const id of ['kd', 'kf', 'kt', 'kw']) $(id).addEventListener('input', () => { if (id === 'kw') lsSet(WORDS, $('kw').value); render(); });
 $('kwDef').onclick = () => { $('kw').value = DEFAULT_WORDS; lsSet(WORDS, DEFAULT_WORDS); render(); };
 $('kwReset').onclick = () => { for (const id of ['kd', 'kf', 'kt']) $(id).value = ''; render(); };
-$('reset').onclick = () => { for (const id of ['day', 'from', 'to', 'targets']) $(id).value = ''; render(); };
+$('reset').onclick = () => { for (const id of ['day', 'from', 'to', 'targets']) $(id).value = ''; syncKw(); render(); };
 
 $('docx').onclick = () => {
   const paras = fullReport();
@@ -987,6 +1005,16 @@ $('test').onclick = async () => {
   const dP = buildReport([parseMessage({ date: '', time: '', lines: dz }, true), parseMessage({ date: '', time: '', lines: dn }, true)]).map(x => x.t);
   ok('знищено: own section before «без знищення», «не знищено» stays in the old one',
     dP.indexOf(T3) === 0 && dP.indexOf(T2) > dP.indexOf(T3) && isDestroyed(dz) && !isDestroyed(dn));
+  const rb = s.filter(l => !/^(?:Набій|Результат)/.test(l)).concat('Результат: не знищено');
+  const rOld = parseLabeled([...rb, 'Причина незнищення: Вийшов із зони ураження'], e);
+  const rNew = parseLabeled([...rb, 'Коментар: Працювали АКУСТИЧНО. Причина незнищення: Зайшла в заборонену зону.', 'Набій 14,5х114 мм (ЗПУ, КПВТ) БЗТ - 8'], e);
+  const rMulti = parseLabeled([...rb, 'Коментар: Працювали АКУСТИЧНО', 'Видимість обмежена. Причина незнищення: Пішла в заборонену зону', 'Набій 14,5х114 мм (ЗПУ, КПВТ) БЗТ - 8'], e);
+  const rNone = parseLabeled([...rb, 'Коментар: Ціль не знищено. Заклинила пушка.', 'Набій 14,5х114 мм (ЗПУ, КПВТ) БЗТ - 8'], e);
+  ok('reason: own line (old SMS) still works', rOld.reason === 'Вийшов із зони ураження');
+  ok('reason: taken from «Коментар:» after the label, text before it dropped', rNew.reason === 'Зайшла в заборонену зону.');
+  ok('reason: multi-line comment stops at ammo lines', rMulti.reason === 'Пішла в заборонену зону');
+  ok('reason: comment without the label gives no reason', rNone.reason === '');
+  ok('reason: printed once as «Причина незнищення: …»', buildReport([rNew]).map(x => x.t).filter(t => t.startsWith('Причина незнищення:')).length === 1);
   const w3 = explainReject(['Результат: знищено', 'Н.П.: Х'], true);
   ok('unrecognized: labeled lists time, опис and target', w3.length === 3 && w3[0].includes('часу') && w3[1].includes('опису') && w3[2].includes('цілі'));
   ok('unrecognized: chat message without "Ціль N"', explainReject(['13.05.2026 04:01', 'текст'], true)[0].includes('номера цілі'));
