@@ -233,7 +233,7 @@ function explainLabeled(lines) {
   if (hasEmptyResult(lines)) why.push('не вказано результат: після «Результат:» порожньо');
   if (!normTime(v('Час:'))) why.push('немає часу («Час:»)');
   if (!v('Опис:')) why.push('немає опису («Опис:»)');
-  if (!parseInt(v('№ цілі:'), 10)) why.push('немає номера цілі («№ цілі:»)');
+  if (!parseInt(v('№ цілі:'), 10) && !/^б\/?н(?![\p{L}\d])/iu.test(v('№ цілі:'))) why.push('немає номера цілі («№ цілі:»)');
   return why;
 }
 
