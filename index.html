@@ -85,7 +85,7 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 <section><div class="tabs" role="tablist">
 <button id="tabRep" class="tab on" type="button" role="tab" aria-selected="true">Звіт <span id="count"></span></button>
 <button id="tabBad" class="tab" type="button" role="tab" aria-selected="false">Нерозпізнані <span id="badCount"></span></button>
-<button id="tabNd" class="tab" type="button" role="tab" aria-selected="false">Не виявлено <span id="ndCount"></span></button>
+<button id="tabNd" class="tab" type="button" role="tab" aria-selected="false">Не виявлені або акустичні <span id="ndCount"></span></button>
 <button id="tabOwn" class="tab" type="button" role="tab" aria-selected="false">Свої <span id="ownCount"></span></button>
 <button id="tabExp" class="tab" type="button" role="tab" aria-selected="false">Вибух <span id="expCount"></span></button></div>
 <div id="out"></div><div id="bad" hidden></div><div id="nd" hidden></div><div id="own" hidden></div><div id="exp" hidden></div>
@@ -224,14 +224,27 @@ function parseMessage(msg, strict) {
   return r;
 }
 
-// "Візуально та акустично не виявлено" among the reasons: such reports skip the report and go to the «Не виявлено» tab.
+// "Візуально та акустично не виявлено" among the reasons: such reports skip the report and go to the «Не виявлені або акустичні» tab.
 const NOT_DETECTED = /візуально\s+та\s+акустично\s+не\s+виявлен/i;
-const isNotDetected = lines => NOT_DETECTED.test(lines.join(' '));
+// Acoustic target farther than 3000 m (Д-3001 and more) goes to the same tab.
+const ACOUSTIC_FAR_FROM = 3001;
+const isFarAcoustic = lines => {
+  const t = lines.join(' '), m = /(?<![\p{L}\d])Д\s*-?\s*(\d{3,6})(?!\d)/iu.exec(t);
+  return /акустичн/i.test(t) && !!m && Number(m[1]) >= ACOUSTIC_FAR_FROM;
+};
+// «Візуально не виявлено / не спостерігали» with no distance at all, or with Д-3001 and more (acoustic or not); fired reports are never moved.
+const NO_VISUAL = /візуальн\p{L}*[^.\n]{0,25}(?<!\p{L})не\s*(?:було\s*)?(?:виявлен|спостер|спотер|бачил|був)|(?<!\p{L})(?:не|ні)\s+візуально/iu;
+const distOf = lines => { const m = /(?<![\p{L}\d])Д\s*-?\s*(\d{3,6})(?!\d)/iu.exec(lines.join(' ')); return m ? Number(m[1]) : null; };
+const isNotSeen = lines => {
+  const d = distOf(lines);
+  return NO_VISUAL.test(lines.join(' ')) && (d === null || d >= ACOUSTIC_FAR_FROM) && !/^(?:не\s*)?знищено/i.test(lineValue(lines, 'Результат:'));
+};
+const isNotDetected = lines => NOT_DETECTED.test(lines.join(' ')) || isFarAcoustic(lines) || isNotSeen(lines);
 
 // Messages with these words skip the report and go to the «Свої» tab (whole words only, so «нашого» does not match «наш»).
 const OWN_WORDS = /(?<!\p{L})(?:свій|свої|наш|наші|гелікоптер|вихід|своєї)(?!\p{L})/iu;
 const isOwn = lines => OWN_WORDS.test(lines.join(' '));
-// Side tab a message belongs to instead of the report: 'exp' («Вибух»), 'own' («Свої»), 'nd' («Не виявлено») or null.
+// Side tab a message belongs to instead of the report: 'exp' («Вибух»), 'own' («Свої»), 'nd' («Не виявлені або акустичні») or null.
 const sideOf = lines => (isExplosion(lines) ? 'exp' : isOwn(lines) ? 'own' : isNotDetected(lines) ? 'nd' : null);
 
 // Only labels specific to a target report: daily status messages also use Підрозділ/Позивний/Н.П./Зброя.
@@ -315,7 +328,7 @@ function checkBad(b) {
   const lines = repairLines(b.text.split('\n')), strict = b.source === 'чат';
   if (isExplosion(lines)) return ['результат «вибух» або «-»: у звіт не входить, піде у вкладку «Вибух»'];
   if (isOwn(lines)) return ['є слова «свій», «наш», «гелікоптер», «вихід» тощо: у звіт не входить, піде у вкладку «Свої»'];
-  if (isNotDetected(lines)) return ['«Візуально та акустично не виявлено»: у звіт не входить, піде у вкладку «Не виявлено»'];
+  if (isNotDetected(lines)) return [NOT_DETECTED.test(lines.join(' ')) ? '«Візуально та акустично не виявлено»: у звіт не входить, піде у вкладку «Не виявлені або акустичні»' : (isFarAcoustic(lines) ? `акустична ціль, дальність Д-${ACOUSTIC_FAR_FROM} м і більше` : 'візуально не виявлено, дальності немає або Д-' + ACOUSTIC_FAR_FROM + ' м і більше') + ': у звіт не входить, піде у вкладку «Не виявлені або акустичні»'];
   return parseMessage({ date: b.date, time: b.time, lines }, strict) ? [] : explainReject(lines, strict);
 }
 
@@ -623,7 +636,7 @@ const addSide = list => {
 const sideNote = (side, pasted) => ({
   exp: 'Результат «вибух» або «-»: у звіт не входить, ' + (pasted ? 'збережено у вкладці «Вибух».' : 'перенесено у вкладку «Вибух».'),
   own: (pasted ? 'Є слова зі списку «Свої»: у звіт не входить, збережено у вкладці «Свої».' : 'Містить слова зі списку «Свої»: перенесено у вкладку «Свої».'),
-  nd: (pasted ? '«Візуально та акустично не виявлено»: у звіт не входить, збережено у вкладці «Не виявлено».' : 'Містить «Візуально та акустично не виявлено»: перенесено у вкладку «Не виявлено».'),
+  nd: (pasted ? 'Візуально не виявлено (дальності немає або далі 3000 м) або акустична ціль далі 3000 м: у звіт не входить, збережено у вкладці «Не виявлені або акустичні».' : 'Візуально не виявлено (дальності немає або далі 3000 м) або акустична ціль далі 3000 м: перенесено у вкладку «Не виявлені або акустичні».'),
 }[side]);
 
 // Records stored before this rule existed are moved out of the report on load.
@@ -755,7 +768,7 @@ function renderBad() {
     : [...vis.map(badCard), clear]));
 }
 
-/** «Не виявлено» messages inside the same date and time window as the report (the target filter does not apply). */
+/** «Не виявлені або акустичні» messages inside the same date and time window as the report (the target filter does not apply). */
 function visibleNd() {
   const f = readFilter();
   return ndet.map(n => ({ n, at: guessPlace(n, n.text) }))
@@ -778,9 +791,9 @@ function renderNd() {
   $('ndCount').textContent = `(${vis.length} із ${ndet.length})`;
   const msg = text => { const p = document.createElement('p'); p.textContent = text; return p; };
   const clear = mkBtn(`Очистити список (${ndet.length})`, 'sec', () => {
-    if (confirm('Очистити список «Не виявлено»?')) { ndet = []; lsSet(NDET, '[]'); render(); }
+    if (confirm('Очистити список «Не виявлені або акустичні»?')) { ndet = []; lsSet(NDET, '[]'); render(); }
   });
-  $('nd').replaceChildren(...(!ndet.length ? [msg('Повідомлень «Візуально та акустично не виявлено» немає.')]
+  $('nd').replaceChildren(...(!ndet.length ? [msg('Повідомлень «не виявлено» й акустичних цілей немає.')]
     : !vis.length ? [msg(`За датою й часом фільтра таких повідомлень немає (у списку всього: ${ndet.length}).`), clear]
     : [...vis.map(ndCard), clear]));
 }
@@ -1048,6 +1061,18 @@ $('test').onclick = async () => {
   ok('не виявлено: phrase found (case/spaces), message kept out of the report',
     isNotDetected(nd1) && parseMessage({ date: '', time: '', lines: nd1 }, true) === null
     && isNotDetected(['причина незастосування: ВІЗУАЛЬНО  та акустично не виявлено']));
+  const far = ['28.09.2026 час 06:22', 'Ціль 9841', 'МВГ 29 (А-114° К-200° Н-500м Д-3001м), акустично 1 БпЛА', 'Причина незастосування: Поза зоною ураження'];
+  const near = far.map(l => l.replace('Д-3001м', 'Д-3000м'));
+  const farLab = ['Дата: 13.05.2026', 'Час: 04:01', '№ цілі: 8106', 'Результат: не застосовувалась', 'Опис: А-30, Д-5000, К-270, акустично 1 БПЛА'];
+  const farVis = far.map(l => l.replace('акустично', 'візуально'));
+  ok('акустичні: Д ≥ 3001 і «акустично» -> вкладка; 3000, без «акустично» та Н-3500м не рахуються',
+    isNotDetected(far) && sideOf(far) === 'nd' && parseMessage({ date: '', time: '', lines: far }, true) === null
+    && !isNotDetected(near) && !isNotDetected(farVis) && isNotDetected(farLab) && !isNotDetected(far.map(l => l.replace('Д-3001м', 'Н-5000м'))));
+  const av = ['28.09.2026 час 06:22', 'Ціль 9841', 'МВГ 29 (А-114° К-200°), 1 БпЛА', 'Причина незастосування: Відео пошуку присутнє. Візуально не виявлено. Поза зоною ураження.'];
+  ok('візуально не виявлено: без дальності або Д ≥ 3001 -> вкладка; Д ≤ 3000, «знищено» і просто «поза зоною» — ні',
+    isNotDetected(av) && sideOf(av) === 'nd' && isNotDetected(av.map(l => l.replace('К-200°', 'К-200° Д-5000м')))
+    && !isNotDetected(av.map(l => l.replace('К-200°', 'К-200° Д-2000м'))) && isNotDetected(['Опис: А-30', 'Коментар: Ні візуально ні акустично не виявлено'])
+    && !isNotDetected(['Результат: знищено', 'Коментар: візуально не спостерігали']) && !isNotDetected(['Причина незастосування: Поза зоною ураження.']));
   const other = ['28.09.2026 час 06:22', 'Ціль 9841', 'МВГ 29, далеко', 'Причина незастосування: Далеко'];
   ok('не виявлено: other reasons stay in the report', !isNotDetected(other) && parseMessage({ date: '', time: '', lines: other }, true) !== null);
   ok('свої: own words are routed to the «Свої» tab, not the report',
