@@ -100,9 +100,10 @@ const T1 = 'Розрахунки через позиції яких відпов
 const T2 = 'Розрахунки, що вели вогонь на ураження цілей (застосування без знищення):';
 const T3 = 'Розрахунки, що вели вогонь на ураження цілей (застосування із знищенням):';
 // Android: "13.05.26, 06:51 - Name: text"; iPhone: "[13.05.26, 06:51:12] Name: text".
-const MSG_START = /^\[?(\d{2}\.\d{2}\.\d{2,4}),?\s+(\d{1,2}:\d{2})(?::\d{2})?(?:\]\s*|\s+-\s+)/;
+// Desktop: "[9/22/26, 9:37:43 AM] - Name: text" (month/day, 12-hour clock; the order is detected from the whole chat).
+const MSG_START = /^\[?(\d{1,4}[./]\d{1,2}[./]\d{2,4}),?\s+(\d{1,2}:\d{2})(?::\d{2})?(?:\s*([AaPp]\.?[Mm]\.?|дп|пп))?(?:\]\s*|\s+-\s+)/i;
 // Service lines every export contains: they are not reports and would only clutter the saved messages.
-const NOISE = /^(?:Це повідомлення (?:було )?видалено\.?|Повідомлення та дзвінки захищено.*)$/;
+const NOISE = /^(?:Це повідомлення (?:було )?видалено\.?|Повідомлення (?:та|й) дзвінки захищено.*|<[^<>\n]{1,80}>)$/;
 
 const clean = s => s.replace(/<Це повідомлення було відредаговано>/g, '').replace(/[\u200e\u200f]/g, '').replace(/[\u202f\u00a0]/g, ' ');
 const pad = n => String(n).padStart(2, '0');
@@ -414,14 +415,40 @@ function keywordParagraphs(list, f) {
 }
 
 // ===================== infrastructure: WhatsApp, docx, storage =====================
+/** With slashes the day/month order differs by device: a part above 12 decides, otherwise month/day (WhatsApp Desktop). */
+function slashOrder(text) {
+  let md = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const m = /^\[?(\d{1,2})\/(\d{1,2})\/\d{2,4}/.exec(raw);
+    if (!m) continue;
+    if (+m[1] > 12) return 'dm';
+    if (+m[2] > 12) md = true;
+  }
+  return 'md';
+}
+/** "9/22/26" / "22.09.26" -> "22.09.2026". */
+function chatDate(s, order) {
+  const sep = s.includes('/') ? '/' : '.', p = s.split(/[./]/);
+  let [d, m, y] = p;
+  if (sep === '/' && order === 'md') [d, m] = [m, d];
+  return `${pad(d)}.${pad(m)}.${y.length === 2 ? '20' + y : y}`;
+}
+/** "1:15" + PM -> "13.15"; without AM/PM the hour is kept as written. */
+function chatTime(t, ap) {
+  const m = /(\d{1,2}):(\d{2})/.exec(t);
+  let h = +m[1];
+  if (ap) { const pm = /^(?:p|пп)/i.test(ap); h = h % 12 + (pm ? 12 : 0); }
+  return `${pad(h)}.${m[2]}`;
+}
+
 /** Splits a WhatsApp .txt export into messages; continuation lines join the previous message. */
 function readChat(text) {
-  const msgs = [];
-  for (const raw of clean(text).split(/\r?\n/)) {
+  const msgs = [], t = clean(text), order = slashOrder(t);
+  for (const raw of t.split(/\r?\n/)) {
     const m = MSG_START.exec(raw);
     if (m) {
       const rest = raw.slice(m[0].length), s = /^[^:]+?:\s?/.exec(rest);
-      msgs.push({ date: normDate(m[1]), time: normTime(m[2]), lines: [s ? rest.slice(s[0].length) : ''], system: !s });
+      msgs.push({ date: chatDate(m[1], order), time: chatTime(m[2], m[3]), lines: [s ? rest.slice(s[0].length) : ''], system: !s });
     } else if (msgs.length) msgs[msgs.length - 1].lines.push(raw);
   }
   return msgs.filter(x => !x.system && !NOISE.test(x.lines.join(' ').trim()));
@@ -513,7 +540,7 @@ async function inflateRaw(bytes) {
   return inflateJS(bytes);
 }
 
-/** Reads every .txt entry of a .zip (WhatsApp «Експорт чату» with media is a zip holding _chat.txt) and joins them by name. */
+/** Reads the .txt entries of a .zip (.md only as a fallback) (WhatsApp «Експорт чату» with media is a zip holding _chat.txt) and joins them by name. */
 async function readZipText(buf) {
   const u = new Uint8Array(buf), dv = new DataView(buf), dec = new TextDecoder('utf-8');
   let end = -1;
@@ -528,13 +555,15 @@ async function readZipText(buf) {
     const nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), at = dv.getUint32(p + 42, true);
     const name = dec.decode(u.subarray(p + 46, p + 46 + nl));
     p += 46 + nl + el + cl;
-    if (!/\.txt$/i.test(name) || /(?:^|\/)(?:__MACOSX\/|\._)/.test(name)) continue;
+    if (!/\.(?:txt|md)$/i.test(name) || /(?:^|\/)(?:__MACOSX\/|\._)/.test(name)) continue;
     if (flags & 1) throw new Error('zip-архів захищено паролем');
     const start = at + 30 + dv.getUint16(at + 26, true) + dv.getUint16(at + 28, true), data = u.subarray(start, start + size);
     if (method !== 0 && method !== 8) throw new Error('непідтримуваний спосіб стиснення в zip');
     found.push([name, dec.decode(method === 0 ? data : await inflateRaw(data))]);
   }
   if (!found.length) throw new Error('у zip-архіві немає .txt файлу');
+  // WhatsApp Desktop packs the same chat twice (chat.txt and chat.md): .md only when there is no .txt, otherwise everything would be doubled.
+  if (found.some(x => /\.txt$/i.test(x[0]))) found.splice(0, found.length, ...found.filter(x => /\.txt$/i.test(x[0])));
   return found.sort((a, b) => a[0].localeCompare(b[0])).map(x => x[1]).join('\n');
 }
 
@@ -1055,6 +1084,10 @@ $('test').onclick = async () => {
     && !matches({ date: '28.06.2026', time: '05.04', target: 0 }, { day: '20260627', from: '', to: '', targets: new Set() }));
   const ios = readChat('[22.09.26, 09:37:43] ~\u202fІм\'я: Ціль 5\n[22.09.26, 09:38:00] ~\u202fІм\'я: Це повідомлення було видалено.');
   const and = readChat('13.05.26, 06:51 - Ім\'я: Ціль 5');
+  const dsk = readChat('[9/22/26, 9:37:43 AM] - ОЧ ПУ СОКІЛ створює групу\n[10/23/26, 12:21:45 PM] - Олег: Ціль 5\nдалі\n[10/23/26, 12:05:00 AM] Олег: <голосове повідомлення пропущено>\n[10/24/26, 1:07:47 PM] - Олег: Ціль 6');
+  ok('chat: WhatsApp Desktop (month/day, AM/PM, system lines, <…> placeholders)', dsk.length === 2 && dsk[0].date === '23.10.2026' && dsk[0].time === '12.21'
+    && dsk[0].lines.join('|') === 'Ціль 5|далі' && dsk[1].time === '13.07' && dsk[1].date === '24.10.2026');
+  ok('chat: slash date with day first when a part exceeds 12', readChat('[23/10/26, 9:05:59] Олег: Ціль 5')[0].date === '23.10.2026');
   ok('chat: iPhone and Android formats both read, deleted skipped', ios.length === 1 && ios[0].time === '09.37' && ios[0].date === '22.09.2026' && ios[0].lines[0] === 'Ціль 5'
     && and.length === 1 && and[0].time === '06.51');
   const nd1 = ['Дата: 13.05.2026', 'Час: 04:01', '№ цілі: 8106', 'Результат: не застосовувалась', 'Причина незастосування: Візуально та акустично не виявлено'];
